@@ -1,0 +1,6 @@
+{
+  "name": "CarbonFlow - Carbon Audit & Compliance Platform",
+  "description": "Enterprise carbon audit, evidence traceability, and GHG emissions compliance management platform. From Carbon Data to Audit-Ready Compliance.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

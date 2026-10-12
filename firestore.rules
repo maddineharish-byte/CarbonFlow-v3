@@ -1,0 +1,143 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global Deny Catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Common Security Helpers
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isPlatformAdmin() {
+      return isSignedIn() && (
+        request.auth.token.email == 'maddineharish@gmail.com' ||
+        (request.auth.token.email_verified == true && request.auth.token.email == 'admin@carbonflow.io')
+      );
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // Helper functions for entity validation
+    function isValidUser(data) {
+      return data.keys().hasAll(['id', 'email', 'fullName', 'role']) &&
+             data.id is string && data.id.size() <= 128 &&
+             data.email is string && data.email.size() <= 150 &&
+             data.fullName is string && data.fullName.size() <= 100 &&
+             data.role is string && data.role in ['COMPANY_ADMIN', 'SUSTAINABILITY_MANAGER', 'ANALYST', 'EMPLOYEE', 'AUDITOR'];
+    }
+
+    function isValidOrg(data) {
+      return data.keys().hasAll(['id', 'name']) &&
+             data.id is string && data.id.size() <= 128 &&
+             data.name is string && data.name.size() <= 150;
+    }
+
+    function isValidCarbonRecord(data) {
+      return data.keys().hasAll(['id', 'organizationId', 'scope', 'category', 'activityAmount', 'unit']) &&
+             data.id is string && data.id.size() <= 128 &&
+             data.organizationId is string && data.organizationId.size() <= 128 &&
+             data.scope is string && data.scope in ['SCOPE_1', 'SCOPE_2', 'SCOPE_3'] &&
+             data.category is string && data.category.size() <= 100 &&
+             (data.activityAmount is number || data.activityAmount is int) &&
+             data.unit is string && data.unit.size() <= 50;
+    }
+
+    function isValidTravelActivity(data) {
+      return data.keys().hasAll(['id', 'organizationId', 'originAddress', 'destinationAddress', 'totalDistanceKm', 'travelMode']) &&
+             data.id is string && data.id.size() <= 128 &&
+             data.organizationId is string && data.organizationId.size() <= 128 &&
+             data.originAddress is string && data.originAddress.size() <= 200 &&
+             data.destinationAddress is string && data.destinationAddress.size() <= 200 &&
+             (data.totalDistanceKm is number || data.totalDistanceKm is int) &&
+             data.travelMode is string && data.travelMode in ['DRIVE', 'TRANSIT', 'WALK', 'BICYCLE'];
+    }
+
+    function isValidEvidence(data) {
+      return data.keys().hasAll(['id', 'organizationId', 'evidenceName', 'status']) &&
+             data.id is string && data.id.size() <= 128 &&
+             data.organizationId is string && data.organizationId.size() <= 128 &&
+             data.evidenceName is string && data.evidenceName.size() <= 150 &&
+             data.status is string && data.status in ['PENDING', 'VERIFIED', 'REJECTED'];
+    }
+
+    function isValidAudit(data) {
+      return data.keys().hasAll(['id', 'organizationId', 'auditName', 'status']) &&
+             data.id is string && data.id.size() <= 128 &&
+             data.organizationId is string && data.organizationId.size() <= 128 &&
+             data.auditName is string && data.auditName.size() <= 150 &&
+             data.status is string && data.status in ['PLANNED', 'IN_PROGRESS', 'FIELDWORK_COMPLETE', 'REPORT_ISSUED', 'COMPLETED'];
+    }
+
+    // Healthcheck / Connection Verification Document
+    match /test/{docId} {
+      allow read: if true;
+    }
+
+    // 1. Users Collection
+    match /users/{userId} {
+      allow get: if isSignedIn() && (isOwner(userId) || isPlatformAdmin());
+      allow list: if isSignedIn() && (resource.data.id == request.auth.uid || isPlatformAdmin());
+      allow create: if isSignedIn() && (isOwner(userId) || isPlatformAdmin()) && isValidUser(incoming());
+      allow update: if isSignedIn() && (isOwner(userId) || isPlatformAdmin()) && isValidUser(incoming()) && incoming().id == existing().id;
+      allow delete: if isPlatformAdmin();
+    }
+
+    // 2. Organizations Collection
+    match /organizations/{orgId} {
+      allow get, list: if isSignedIn();
+      allow create: if isSignedIn() && isValidOrg(incoming());
+      allow update: if isSignedIn() && isValidOrg(incoming()) && incoming().id == existing().id;
+      allow delete: if isPlatformAdmin();
+    }
+
+    // 3. Carbon Records Collection
+    match /carbonRecords/{recordId} {
+      allow get, list: if isSignedIn();
+      allow create: if isSignedIn() && isValidCarbonRecord(incoming());
+      allow update: if isSignedIn() && isValidCarbonRecord(incoming()) && incoming().id == existing().id;
+      allow delete: if isSignedIn();
+    }
+
+    // 4. Travel Activities Collection
+    match /travelActivities/{activityId} {
+      allow get, list: if isSignedIn();
+      allow create: if isSignedIn() && isValidTravelActivity(incoming());
+      allow update: if isSignedIn() && isValidTravelActivity(incoming()) && incoming().id == existing().id;
+      allow delete: if isSignedIn();
+    }
+
+    // 5. Evidence Collection
+    match /evidence/{evidenceId} {
+      allow get, list: if isSignedIn();
+      allow create: if isSignedIn() && isValidEvidence(incoming());
+      allow update: if isSignedIn() && isValidEvidence(incoming()) && incoming().id == existing().id;
+      allow delete: if isSignedIn();
+    }
+
+    // 6. Audits Collection
+    match /audits/{auditId} {
+      allow get, list: if isSignedIn();
+      allow create: if isSignedIn() && isValidAudit(incoming());
+      allow update: if isSignedIn() && isValidAudit(incoming()) && incoming().id == existing().id;
+      allow delete: if isSignedIn();
+    }
+  }
+}

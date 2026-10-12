@@ -1,0 +1,161 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "User profile and authentication identity document",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique user identifier matching auth UID" },
+        "email": { "type": "string", "format": "email", "description": "User email address" },
+        "fullName": { "type": "string", "description": "Full name of the user", "maxLength": 100 },
+        "role": { "type": "string", "enum": ["COMPANY_ADMIN", "SUSTAINABILITY_MANAGER", "ANALYST", "EMPLOYEE", "AUDITOR"], "description": "Role in CarbonFlow" },
+        "organizationId": { "type": "string", "description": "Associated organization ID", "maxLength": 64 },
+        "title": { "type": "string", "description": "Job title", "maxLength": 100 },
+        "createdAt": { "type": "string", "description": "Timestamp of creation" },
+        "updatedAt": { "type": "string", "description": "Timestamp of last update" }
+      },
+      "required": ["id", "email", "fullName", "role"]
+    },
+    "Organization": {
+      "title": "Organization",
+      "description": "Corporate or operational tenant organization tracking carbon emissions",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique organization ID" },
+        "name": { "type": "string", "description": "Organization business name", "maxLength": 150 },
+        "industry": { "type": "string", "description": "Primary industry sector", "maxLength": 100 },
+        "country": { "type": "string", "description": "Country of headquarters", "maxLength": 100 },
+        "location": { "type": "string", "description": "Operational base or headquarters", "maxLength": 150 },
+        "description": { "type": "string", "description": "Organization profile summary", "maxLength": 500 },
+        "reportingPeriod": { "type": "string", "description": "Current active GHG reporting cycle", "maxLength": 20 },
+        "createdAt": { "type": "string", "description": "Creation timestamp" },
+        "updatedAt": { "type": "string", "description": "Update timestamp" }
+      },
+      "required": ["id", "name"]
+    },
+    "CarbonRecord": {
+      "title": "CarbonRecord",
+      "description": "Activity data and GHG protocol calculated emissions record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique record identifier" },
+        "organizationId": { "type": "string", "description": "Associated organization ID" },
+        "userId": { "type": "string", "description": "User ID of the reporter or data owner" },
+        "reportingPeriod": { "type": "string", "description": "Reporting fiscal quarter or year", "maxLength": 20 },
+        "scope": { "type": "string", "enum": ["SCOPE_1", "SCOPE_2", "SCOPE_3"], "description": "GHG Protocol emission scope" },
+        "category": { "type": "string", "description": "Emission source category", "maxLength": 100 },
+        "activityType": { "type": "string", "description": "Specific activity description", "maxLength": 150 },
+        "activityAmount": { "type": "number", "description": "Measured quantity of activity" },
+        "unit": { "type": "string", "description": "Activity metric unit", "maxLength": 50 },
+        "emissionFactor": { "type": "number", "description": "Applied emission factor value" },
+        "calculatedEmissions": { "type": "number", "description": "Total calculated GHG emissions in tCO2e" },
+        "source": { "type": "string", "description": "Data origin, meter, or fuel log reference", "maxLength": 150 },
+        "dataOwner": { "type": "string", "description": "Assigned responsible individual", "maxLength": 100 },
+        "status": { "type": "string", "enum": ["DRAFT", "PENDING", "VALIDATED", "FLAGGED", "UNDER_REVIEW"], "description": "Validation workflow state" },
+        "notes": { "type": "string", "description": "Audit notes and justification", "maxLength": 1000 },
+        "createdAt": { "type": "string", "description": "Timestamp created" }
+      },
+      "required": ["id", "organizationId", "scope", "category", "activityAmount", "unit"]
+    },
+    "TravelActivity": {
+      "title": "TravelActivity",
+      "description": "Travel and mobility activity data computed via Google Maps Routes API",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique activity ID" },
+        "organizationId": { "type": "string", "description": "Associated organization ID" },
+        "userId": { "type": "string", "description": "User who completed travel" },
+        "title": { "type": "string", "description": "Business purpose or trip title", "maxLength": 150 },
+        "travelDate": { "type": "string", "description": "Date of travel (YYYY-MM-DD)" },
+        "tripType": { "type": "string", "enum": ["ONE_WAY", "ROUND_TRIP"], "description": "Single or return journey" },
+        "travelMode": { "type": "string", "enum": ["DRIVE", "TRANSIT", "WALK", "BICYCLE"], "description": "Transportation mode" },
+        "vehicleType": { "type": "string", "description": "Vehicle or fuel type classification", "maxLength": 100 },
+        "originAddress": { "type": "string", "description": "Starting address or location", "maxLength": 200 },
+        "destinationAddress": { "type": "string", "description": "Destination address or location", "maxLength": 200 },
+        "waypointsJson": { "type": "string", "description": "JSON serialized intermediate waypoints", "maxLength": 1000 },
+        "passengerCount": { "type": "number", "description": "Number of traveling occupants" },
+        "oneWayDistanceKm": { "type": "number", "description": "Single leg distance in kilometers" },
+        "totalDistanceKm": { "type": "number", "description": "Total route distance in kilometers" },
+        "durationSeconds": { "type": "number", "description": "Google Maps estimated trip duration in seconds" },
+        "routingProvider": { "type": "string", "description": "Routing service provider", "maxLength": 50 },
+        "routingService": { "type": "string", "description": "API version used for routing", "maxLength": 50 },
+        "routeSummary": { "type": "string", "description": "Authoritative route description", "maxLength": 255 },
+        "emissionFactorValue": { "type": "number", "description": "Resolved emissions factor per passenger-km" },
+        "calculatedEmissions": { "type": "number", "description": "Calculated tCO2e output" },
+        "status": { "type": "string", "enum": ["PENDING", "CALCULATED", "SUBMITTED", "APPROVED", "REJECTED"], "description": "Activity accounting status" },
+        "notes": { "type": "string", "description": "Auditable notes and evidence remarks", "maxLength": 1000 },
+        "provenanceMetadata": { "type": "string", "description": "Audit provenance JSON string", "maxLength": 2000 },
+        "createdAt": { "type": "string", "description": "Creation timestamp" },
+        "updatedAt": { "type": "string", "description": "Last update timestamp" }
+      },
+      "required": ["id", "organizationId", "originAddress", "destinationAddress", "totalDistanceKm", "travelMode"]
+    },
+    "Evidence": {
+      "title": "Evidence",
+      "description": "Corroborating documentation and utility bills for audit verification",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique evidence ID" },
+        "organizationId": { "type": "string", "description": "Associated organization ID" },
+        "evidenceName": { "type": "string", "description": "Document name or bill reference", "maxLength": 150 },
+        "evidenceType": { "type": "string", "description": "Evidence classification type", "maxLength": 50 },
+        "reportingPeriod": { "type": "string", "description": "Covered accounting period", "maxLength": 20 },
+        "source": { "type": "string", "description": "Provider or issuing authority", "maxLength": 100 },
+        "owner": { "type": "string", "description": "Responsible team member", "maxLength": 100 },
+        "uploadDate": { "type": "string", "description": "Date recorded" },
+        "status": { "type": "string", "enum": ["PENDING", "VERIFIED", "REJECTED"], "description": "Verification status" },
+        "description": { "type": "string", "description": "Detailed document description", "maxLength": 1000 },
+        "fileUrl": { "type": "string", "description": "Accessible storage URL", "maxLength": 500 },
+        "linkedCarbonDataId": { "type": "string", "description": "Linked carbon record ID" }
+      },
+      "required": ["id", "organizationId", "evidenceName", "status"]
+    },
+    "Audit": {
+      "title": "Audit",
+      "description": "Formal greenhouse gas audit engagement and assurance record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique audit ID" },
+        "organizationId": { "type": "string", "description": "Organization being audited" },
+        "auditName": { "type": "string", "description": "Audit engagement name", "maxLength": 150 },
+        "auditType": { "type": "string", "description": "Internal or third-party assurance", "maxLength": 50 },
+        "auditor": { "type": "string", "description": "Auditing firm or party", "maxLength": 100 },
+        "leadAuditor": { "type": "string", "description": "Lead verifier name", "maxLength": 100 },
+        "standard": { "type": "string", "description": "Assurance standard (e.g. ISO 14064-3)", "maxLength": 100 },
+        "reportingPeriod": { "type": "string", "description": "Audited reporting cycle", "maxLength": 20 },
+        "status": { "type": "string", "enum": ["PLANNED", "IN_PROGRESS", "FIELDWORK_COMPLETE", "REPORT_ISSUED", "COMPLETED"], "description": "Audit engagement status" },
+        "startDate": { "type": "string", "description": "Start date" },
+        "endDate": { "type": "string", "description": "Estimated completion date" },
+        "score": { "type": "number", "description": "Assurance compliance score percentage" },
+        "findingsCount": { "type": "number", "description": "Total identified findings" }
+      },
+      "required": ["id", "organizationId", "auditName", "status"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "User profile collection indexed by user authentication UID"
+    },
+    "/organizations/{orgId}": {
+      "schema": "Organization",
+      "description": "Tenant organization profiles"
+    },
+    "/carbonRecords/{recordId}": {
+      "schema": "CarbonRecord",
+      "description": "Organization activity data and greenhouse gas emissions records"
+    },
+    "/travelActivities/{activityId}": {
+      "schema": "TravelActivity",
+      "description": "Auditable business travel distance records and carbon calculations"
+    },
+    "/evidence/{evidenceId}": {
+      "schema": "Evidence",
+      "description": "Supporting documents and utility statements"
+    },
+    "/audits/{auditId}": {
+      "schema": "Audit",
+      "description": "Assurance audit engagements"
+    }
+  }
+}
