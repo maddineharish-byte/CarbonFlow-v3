@@ -1,5 +1,5 @@
 server:
-  port: ${BACKEND_PORT:8081}
+  port: ${PORT:${BACKEND_PORT:8080}}
   error:
     include-message: always
     include-binding-errors: always
@@ -17,6 +17,7 @@ spring:
     password: ${SPRING_DATASOURCE_PASSWORD:}
   flyway:
     enabled: true
+    clean-disabled: true
     locations: classpath:db/migration
     baseline-on-migrate: true
     baseline-version: 0

@@ -9,17 +9,44 @@ import { fileURLToPath } from "url";
 dotenv.config();
 var __dirname = path.dirname(fileURLToPath(import.meta.url));
 var app = express();
-var PORT = Number(process.env.PORT) || 3e3;
-app.use(express.json());
-var apiKey = process.env.GEMINI_API_KEY || "";
-var ai = new GoogleGenAI({
-  apiKey,
-  httpOptions: {
-    headers: {
-      "User-Agent": "aistudio-build"
-    }
+function resolvePort() {
+  const portArgIndex = process.argv.indexOf("--port");
+  if (portArgIndex !== -1 && process.argv[portArgIndex + 1]) {
+    const parsed = Number(process.argv[portArgIndex + 1]);
+    if (!isNaN(parsed) && parsed > 0) return parsed;
   }
-});
+  if (process.env.DEFAULT_APP_PORT) {
+    const parsed = Number(process.env.DEFAULT_APP_PORT);
+    if (!isNaN(parsed) && parsed > 0) return parsed;
+  }
+  if (process.env.PORT && process.env.PORT !== "8080") {
+    const parsed = Number(process.env.PORT);
+    if (!isNaN(parsed) && parsed > 0) return parsed;
+  }
+  return 3e3;
+}
+function resolveHost() {
+  const hostArgIndex = process.argv.indexOf("--host");
+  if (hostArgIndex !== -1 && process.argv[hostArgIndex + 1]) {
+    return process.argv[hostArgIndex + 1];
+  }
+  return "0.0.0.0";
+}
+var PORT = resolvePort();
+var HOST = resolveHost();
+app.use(express.json());
+function getGeminiClient() {
+  const key = process.env.GEMINI_API_KEY || "";
+  if (!key.trim()) return null;
+  return new GoogleGenAI({
+    apiKey: key,
+    httpOptions: {
+      headers: {
+        "User-Agent": "aistudio-build"
+      }
+    }
+  });
+}
 app.post("/api/auth/login", (req, res) => {
   const { email } = req.body || {};
   const accounts = {
@@ -912,98 +939,53 @@ app.get("/api/backup/status", (_req, res) => {
     recoveryPointObjective: "< 5 minutes (RPO)"
   });
 });
-function generateDomainFallback(lastUserText, _personaPrompt) {
-  const query = (lastUserText || "").toLowerCase();
-  if (query.includes("evidence") || query.includes("iso 14064") || query.includes("audit")) {
-    return `### ISO 14064-3 Audit Trail & Evidence Verification
-
-Under **ISO 14064-3** (*Specification with guidance for the verification and validation of greenhouse gas statements*), external verifiers require a continuous audit trail:
-
-1. **Primary Activity Documentation:**
-   - Utility invoices or metered telemetry for stationary fuel (e.g., natural gas therms/MWh).
-   - Calibrated utility meters with custody-transfer records.
-   - Verified batch calorific values and fuel delivery manifests.
-
-2. **Emission Factor Traceability:**
-   - Explicit factor publisher documentation (e.g., EPA GHG Factors Hub v2024, DEFRA, eGRID subregion).
-   - Documented 100-year Global Warming Potentials (GWPs) specified (IPCC AR5 or AR6).
-
-3. **Data Quality & Control Rigor:**
-   - Materiality threshold evaluation (standard 5% for limited assurance, 2% for reasonable assurance).
-   - Immutable audit trail provenance hash (SHA-256) recorded in CarbonFlow.`;
-  }
-  if (query.includes("travel") || query.includes("passenger") || query.includes("flight") || query.includes("road") || query.includes("car") || query.includes("rail")) {
-    return `### Scope 3 Category 6: Business Travel Calculation Framework
-
-According to the **GHG Protocol Technical Guidance for Calculating Scope 3 Emissions (Category 6)**:
-
-1. **Distance-Based Method (Standard of Truth):**
-   $$\\text{Emissions (tCO}_2\\text{e)} = \\frac{\\text{Activity Distance (km)} \\times \\text{Emission Factor (kg CO}_2\\text{e/km)} \\times \\text{Passenger Count}}{1,000}$$
-
-2. **Verified Published Emission Factors (DEFRA / EPA):**
-   - **Passenger Car (Gasoline / ICE):** $0.1702\\text{ kg CO}_2\\text{e/km}$
-   - **Electric Vehicle (EV):** $0.0530\\text{ kg CO}_2\\text{e/km}$ (Grid average basis)
-   - **National Rail / Train:** $0.0355\\text{ kg CO}_2\\text{e/passenger-km}$
-   - **Domestic Aviation (< 500 km):** $0.2460\\text{ kg CO}_2\\text{e/passenger-km}$ (including radiative forcing uplift)
-
-3. **CarbonFlow Verification Trail:**
-   - Origin and destination coordinates geocoded via OpenStreetMap Nominatim.
-   - Road distance verified via OSRM engine and displayed on OpenFreeMap tiles.
-   - Calculation recorded with immutable audit metadata in the carbon ledger.`;
-  }
-  if (query.includes("csrd") || query.includes("scope 3") || query.includes("esrs") || query.includes("sec")) {
-    return `### Regulatory Compliance Overview: CSRD ESRS E1 & SEC Climate Disclosures
-
-1. **EU CSRD (ESRS E1 Climate Change):**
-   - **Scope 1 & Scope 2:** Mandatory gross reporting (dual reporting: location-based and market-based Scope 2).
-   - **Scope 3 Value Chain:** Mandatory across material categories (Category 1 Purchased Goods, Category 4 Upstream Freight, Category 6 Business Travel).
-   - **Assurance Timeline:** Limited assurance required at initial filing, transitioning to reasonable assurance.
-
-2. **SEC Climate Disclosure Framework:**
-   - Large Accelerated Filers (LAFs) must disclose material Scope 1 and Scope 2 emissions with attestation reports.
-   - Clear disclosure of climate-related governance, risks, and greenhouse gas targets.
-
-3. **CarbonFlow Audit Readiness:**
-   - Immutable evidence records and cryptographic data hashes.
-   - Role-based separation of duties between preparers, reviewers, and assurance providers.`;
-  }
-  if (query.includes("calculate") || query.includes("therm") || query.includes("kwh") || query.includes("formula")) {
-    return `### Greenhouse Gas Calculation Methodology
-
-The fundamental equation for activity-based emissions calculation is:
-
-$$\\text{Total Emissions (tCO}_2\\text{e)} = \\frac{\\text{Activity Data} \\times \\text{Emission Factor}}{1,000}$$
-
-#### Benchmark Examples:
-- **Natural Gas (Stationary Combustion):**
-  $18,450\\text{ therms} \\times 0.0053\\text{ tCO}_2\\text{e/therm} = 97.785\\text{ tCO}_2\\text{e}$
-- **Purchased Electricity (Scope 2):**
-  $\\text{Activity (MWh)} \\times \\text{eGRID factor (kg CO}_2\\text{e/MWh)} \\div 1,000$
-
-All calculations are linked directly to source factors and persisted in the CarbonFlow ledger.`;
-  }
-  return `### CarbonFlow Enterprise AI Sustainability & Audit Assistant
-
-Hello! I am your enterprise sustainability and GHG audit assistant.
-
-- **GHG Protocol Standards:** Strict alignment with the GHG Protocol Corporate Accounting Standard and Scope 3 Value Chain Standard.
-- **Traceable Ledger:** Every activity recorded in CarbonFlow generates an immutable audit record with timestamp, user ID, calculation formula, and source factor provenance.
-- **Assurance Readiness:** Formatted for third-party verifiers following ISO 14064-3 and EU CSRD (ESRS E1) requirements.
-
-How can I assist your organization with emissions calculations, travel mobility verification, or audit compliance today?`;
-}
+var SUPPORTED_GEMINI_MODELS = [
+  "gemini-3.1-flash-lite",
+  "gemini-3.8-flash",
+  "gemini-3.1-pro-preview",
+  "gemini-flash-latest"
+];
+app.get("/api/gemini/chat", (_req, res) => {
+  const hasKey = Boolean(process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.trim());
+  return res.json({
+    status: "online",
+    endpoint: "/api/gemini/chat",
+    method: "POST",
+    supportedModels: SUPPORTED_GEMINI_MODELS,
+    credentialsConfigured: hasKey
+  });
+});
 app.post("/api/gemini/chat", async (req, res) => {
   try {
-    const { model = "gemini-3.1-flash-lite", messages = [], systemInstruction } = req.body;
+    const { model = "gemini-3.1-flash-lite", messages = [], systemInstruction } = req.body || {};
     if (!messages || !Array.isArray(messages) || messages.length === 0) {
-      return res.status(400).json({ error: "Messages array is required" });
+      return res.status(400).json({
+        error: 'Invalid request: "messages" must be a non-empty array of chat messages.',
+        code: "INVALID_MESSAGES"
+      });
     }
-    let targetModel = model;
-    if (targetModel === "gemini-3.5-flash" || targetModel === "gemini-flash-latest") {
-      targetModel = "gemini-3.1-flash-lite";
+    if (model && !SUPPORTED_GEMINI_MODELS.includes(model)) {
+      return res.status(400).json({
+        error: `Unsupported Gemini model: '${model}'. Supported models are: ${SUPPORTED_GEMINI_MODELS.join(", ")}`,
+        code: "INVALID_MODEL",
+        supportedModels: SUPPORTED_GEMINI_MODELS
+      });
     }
-    const validModels = ["gemini-3.1-flash-lite", "gemini-3.8-flash", "gemini-3.1-pro-preview"];
-    const selectedModel = validModels.includes(targetModel) ? targetModel : "gemini-3.1-flash-lite";
+    const selectedModel = model === "gemini-flash-latest" ? "gemini-3.8-flash" : model;
+    const currentApiKey = process.env.GEMINI_API_KEY || "";
+    if (!currentApiKey || !currentApiKey.trim()) {
+      return res.status(401).json({
+        error: "Missing Gemini API credentials. The server requires GEMINI_API_KEY environment variable to be configured.",
+        code: "MISSING_CREDENTIALS"
+      });
+    }
+    const ai = getGeminiClient();
+    if (!ai) {
+      return res.status(401).json({
+        error: "Failed to initialize Gemini API client with provided credentials.",
+        code: "CLIENT_INIT_FAILED"
+      });
+    }
     const contents = messages.map((m) => ({
       role: m.role === "model" || m.role === "assistant" ? "model" : "user",
       parts: [{ text: String(m.text || m.content || "") }]
@@ -1021,9 +1003,26 @@ app.post("/api/gemini/chat", async (req, res) => {
       const reply = response.text || "I analyzed the inquiry, but no textual response was generated.";
       return res.json({ reply, model: selectedModel });
     } catch (primaryErr) {
-      console.warn(`Primary model ${selectedModel} failed (${primaryErr?.message || primaryErr}); attempting automatic failover to gemini-3.1-flash-lite...`);
+      const status = primaryErr?.status || primaryErr?.statusCode || primaryErr?.code;
+      const errMsg = String(primaryErr?.message || primaryErr || "");
+      console.warn(`Gemini API call with ${selectedModel} failed (${status || "unknown"}: ${errMsg})`);
+      if (status === 429 || errMsg.includes("RESOURCE_EXHAUSTED") || errMsg.includes("quota") || errMsg.includes("rate limit")) {
+        return res.status(429).json({
+          error: "Gemini API rate limit or quota exceeded. Please wait a moment or upgrade your tier.",
+          code: "QUOTA_EXCEEDED",
+          details: errMsg
+        });
+      }
+      if (status === 403 || errMsg.includes("API_KEY_INVALID") || errMsg.includes("key not valid") || errMsg.includes("API key expired")) {
+        return res.status(401).json({
+          error: "Invalid or unauthorized Gemini API credentials.",
+          code: "INVALID_CREDENTIALS",
+          details: errMsg
+        });
+      }
       if (selectedModel !== "gemini-3.1-flash-lite") {
         try {
+          console.log(`Attempting failover to gemini-3.1-flash-lite...`);
           const fallbackResponse = await ai.models.generateContent({
             model: "gemini-3.1-flash-lite",
             contents,
@@ -1039,22 +1038,21 @@ ${reply}`,
             model: "gemini-3.1-flash-lite"
           });
         } catch (secondaryErr) {
-          console.warn("Secondary gemini-3.1-flash-lite failed:", secondaryErr?.message || secondaryErr);
+          console.warn("Fallback to gemini-3.1-flash-lite also failed:", secondaryErr?.message);
         }
       }
-      const localReply = generateDomainFallback(lastUserMsg, systemInstruction);
-      return res.json({
-        reply: `*(Notice: External Gemini API is currently experiencing peak demand; providing verified CarbonFlow sustainability guidance)*
-
-${localReply}`,
-        model: "carbonflow-assistant"
+      const httpCode = status === 503 || errMsg.includes("UNAVAILABLE") || errMsg.includes("high demand") ? 503 : 502;
+      return res.status(httpCode).json({
+        error: `Gemini API upstream error: ${errMsg || "Service temporarily unavailable"}`,
+        code: "UPSTREAM_FAILURE",
+        details: errMsg
       });
     }
   } catch (error) {
-    console.error("Gemini API chat unhandled error:", error);
+    console.error("Unhandled Gemini endpoint error:", error);
     return res.status(500).json({
       error: error?.message || "Failed to process chat query with Gemini API",
-      details: String(error)
+      code: "INTERNAL_ERROR"
     });
   }
 });
@@ -1068,20 +1066,25 @@ app.get(["/maplibre-gl-worker.mjs", "/node_modules/.vite/deps/maplibre-gl-worker
   return res.status(404).send("Worker file not found");
 });
 async function startServer() {
-  if (process.env.NODE_ENV === "production") {
-    app.use(express.static(path.join(__dirname, "dist")));
+  const distDir = path.join(__dirname, "dist");
+  const distExists = fs.existsSync(path.join(distDir, "index.html"));
+  const isProduction = process.env.NODE_ENV === "production" || distExists && process.env.NODE_ENV !== "development";
+  if (isProduction) {
+    console.log(`Starting in PRODUCTION mode, serving static assets from ${distDir}`);
+    app.use(express.static(distDir));
     app.get("*", (_req, res) => {
-      res.sendFile(path.join(__dirname, "dist", "index.html"));
+      res.sendFile(path.join(distDir, "index.html"));
     });
   } else {
+    console.log(`Starting in DEVELOPMENT mode with Vite middleware`);
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa"
     });
     app.use(vite.middlewares);
   }
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`CarbonFlow dev server running on port ${PORT}`);
+  app.listen(PORT, HOST, () => {
+    console.log(`CarbonFlow server running on http://${HOST}:${PORT} (PID ${process.pid})`);
   });
 }
 startServer();

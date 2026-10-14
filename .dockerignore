@@ -1,0 +1,38 @@
+# Git & version control
+.git
+.gitignore
+
+# Frontend dependencies and build output
+node_modules/
+dist/
+build/
+.aistudio/
+
+# Backend local build artifacts and local database files
+backend/target/
+backend/data/
+*.jar
+*.war
+
+# Environment variables & secrets
+.env
+.env.*
+*.env
+*.pem
+*.key
+*.cer
+
+# IDE & Editor configuration
+.idea/
+*.iml
+.vscode/
+.classpath
+.project
+.settings/
+
+# OS and temporary files
+.DS_Store
+Thumbs.db
+*.tmp
+*.log
+logs/

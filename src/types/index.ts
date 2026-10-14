@@ -350,7 +350,7 @@ export interface ChatMessage {
   role: 'user' | 'model';
   text: string;
   timestamp: string;
-  modelUsed?: GeminiModelType;
+  modelUsed?: GeminiModelType | string;
 }
 
 export interface ChatRequest {

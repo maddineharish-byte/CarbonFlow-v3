@@ -20,7 +20,11 @@ import {
   RefreshCw,
   Sliders,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  Key,
+  ExternalLink,
+  X,
+  Info
 } from 'lucide-react';
 import { ChatMessage, GeminiModelType, ChatRolePreset } from '../../types';
 import { api } from '../../services/api';
@@ -86,8 +90,33 @@ export function GeminiChatbotPage() {
   const [loading, setLoading] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [geminiStatus, setGeminiStatus] = useState<{
+    status: string;
+    runtime: string;
+    endpoint: string;
+    supportedModels: string[];
+    credentialsConfigured: boolean;
+  } | null>(null);
+  const [showNetlifyGuide, setShowNetlifyGuide] = useState(false);
+  const [testingConnection, setTestingConnection] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  const checkStatus = async () => {
+    setTestingConnection(true);
+    try {
+      const res = await api.checkGeminiStatus();
+      setGeminiStatus(res);
+    } catch (err) {
+      console.warn('Status check failed:', err);
+    } finally {
+      setTestingConnection(false);
+    }
+  };
+
+  useEffect(() => {
+    checkStatus();
+  }, []);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -283,7 +312,48 @@ export function GeminiChatbotPage() {
               <span>Complex (3.1-Pro)</span>
             </button>
           </div>
+
+          {/* Connection Status Pill */}
+          {geminiStatus && (
+            <div className="shrink-0">
+              {geminiStatus.credentialsConfigured ? (
+                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200">
+                  <Check className="h-3 w-3 text-emerald-600" />
+                  Gemini API Live
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setShowNetlifyGuide(true)}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold bg-amber-50 text-amber-900 border border-amber-300 hover:bg-amber-100 transition shadow-2xs cursor-pointer"
+                  title="Click to view instructions for adding GEMINI_API_KEY in Netlify"
+                >
+                  <Key className="h-3 w-3 text-amber-700" />
+                  <span>Configure API Key</span>
+                </button>
+              )}
+            </div>
+          )}
         </div>
+
+        {/* Informative Netlify / Credentials Notice if unconfigured */}
+        {geminiStatus && !geminiStatus.credentialsConfigured && (
+          <div className="rounded-lg bg-amber-50/90 border border-amber-200 p-2.5 text-xs text-amber-900 flex items-center justify-between gap-3 animate-in fade-in duration-150">
+            <div className="flex items-center gap-2">
+              <Info className="h-4 w-4 text-amber-700 shrink-0" />
+              <span>
+                <strong>Netlify Notice:</strong> <code className="bg-amber-100 text-amber-950 font-mono text-[11px] px-1 py-0.5 rounded border border-amber-200 font-bold">GEMINI_API_KEY</code> is not yet configured in Netlify environment variables. Chatbot is answering via the built-in CarbonFlow GHG Knowledge Engine.
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowNetlifyGuide(true)}
+              className="text-amber-900 font-bold underline hover:text-amber-950 shrink-0 cursor-pointer text-xs"
+            >
+              Setup Guide →
+            </button>
+          </div>
+        )}
 
         {/* Persona Selector & System Instruction Accordion */}
         <div className="flex flex-wrap items-center justify-between gap-2 border-t border-stone-100 pt-3 text-xs">
@@ -435,9 +505,20 @@ export function GeminiChatbotPage() {
 
         {/* Error notification */}
         {error && (
-          <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-800 flex items-center gap-2">
-            <AlertCircle className="h-4 w-4 shrink-0 text-red-600" />
-            <span className="flex-1">{error}</span>
+          <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-800 flex items-center justify-between gap-3 animate-in fade-in">
+            <div className="flex items-center gap-2">
+              <AlertCircle className="h-4 w-4 shrink-0 text-red-600" />
+              <span className="flex-1">{error}</span>
+            </div>
+            {(error.includes('GEMINI_API_KEY') || error.includes('credentials') || error.includes('Netlify')) && (
+              <button
+                type="button"
+                onClick={() => setShowNetlifyGuide(true)}
+                className="px-2.5 py-1 bg-red-100 hover:bg-red-200 text-red-900 rounded font-semibold border border-red-300 shrink-0 cursor-pointer text-[11px]"
+              >
+                Setup Guide
+              </button>
+            )}
           </div>
         )}
 
@@ -482,6 +563,90 @@ export function GeminiChatbotPage() {
           </button>
         </div>
       </div>
+
+      {/* Netlify GEMINI_API_KEY Setup Guide Modal */}
+      {showNetlifyGuide && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xs p-4">
+          <div className="bg-white rounded-2xl shadow-2xl border border-stone-200 max-w-lg w-full p-6 space-y-4 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between border-b border-stone-100 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="h-9 w-9 rounded-xl bg-emerald-100 text-emerald-800 flex items-center justify-center font-bold">
+                  <Key className="h-4.5 w-4.5 text-emerald-700" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-stone-900">Configure GEMINI_API_KEY on Netlify</h3>
+                  <p className="text-[11px] text-stone-500">Enable live Google Gemini 2.5 / Flash models on your deployed site</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowNetlifyGuide(false)}
+                className="text-stone-400 hover:text-stone-700 p-1.5 rounded-lg hover:bg-stone-100 transition"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs text-stone-700">
+              <p className="text-stone-600">
+                Follow these 4 simple steps in your Netlify dashboard to link your Gemini API credentials:
+              </p>
+              <ol className="space-y-2 list-decimal list-inside bg-stone-50 p-3.5 rounded-xl border border-stone-200">
+                <li className="leading-relaxed">
+                  Open your <strong>Netlify Dashboard</strong> (<a href="https://app.netlify.com" target="_blank" rel="noreferrer" className="text-emerald-700 underline font-medium inline-flex items-center gap-0.5">app.netlify.com <ExternalLink className="h-2.5 w-2.5" /></a>) and select your CarbonFlow site.
+                </li>
+                <li className="leading-relaxed">
+                  Navigate to <strong>Site configuration</strong> &gt; <strong>Environment variables</strong>.
+                </li>
+                <li className="leading-relaxed">
+                  Click <strong>Add a variable</strong> &gt; <strong>Add a single variable</strong>:
+                  <div className="mt-2 grid grid-cols-3 gap-2 bg-white p-2.5 rounded-lg border border-stone-200 font-mono text-[11px]">
+                    <span className="text-stone-500 font-sans font-medium">Key:</span>
+                    <span className="col-span-2 font-bold text-emerald-900 select-all">GEMINI_API_KEY</span>
+                    <span className="text-stone-500 font-sans font-medium">Value:</span>
+                    <span className="col-span-2 text-stone-600 truncate">[Your Google Gemini API Key]</span>
+                  </div>
+                </li>
+                <li className="leading-relaxed">
+                  Go to <strong>Deploys</strong> &gt; <strong>Trigger deploy</strong> &gt; select <strong>Clear cache and deploy site</strong>.
+                </li>
+              </ol>
+
+              <div className="bg-emerald-50 border border-emerald-200 p-3 rounded-xl flex items-center justify-between text-[11px] text-emerald-900">
+                <span>Need a free Google Gemini API Key?</span>
+                <a
+                  href="https://aistudio.google.com/apikey"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="font-bold underline hover:text-emerald-950 inline-flex items-center gap-1 text-emerald-800"
+                >
+                  Get Key in Google AI Studio <ExternalLink className="h-3 w-3" />
+                </a>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between border-t border-stone-100 pt-3">
+              <button
+                type="button"
+                onClick={checkStatus}
+                disabled={testingConnection}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border border-stone-300 hover:bg-stone-50 transition disabled:opacity-50"
+              >
+                <RefreshCw className={`h-3.5 w-3.5 ${testingConnection ? 'animate-spin' : ''}`} />
+                <span>{testingConnection ? 'Checking...' : 'Check Connection Live'}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setShowNetlifyGuide(false)}
+                className="px-4 py-1.5 bg-emerald-800 hover:bg-emerald-900 text-white rounded-lg text-xs font-semibold shadow-xs transition"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
