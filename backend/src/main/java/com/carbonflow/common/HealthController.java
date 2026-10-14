@@ -29,25 +29,24 @@ public class HealthController {
 
     @GetMapping({"", "/", "/health"})
     public ApiResponse<Map<String, Object>> rootHealth() {
-        return ApiResponse.ok("CarbonFlow Enterprise Carbon Audit & Compliance Platform Backend", Map.of(
+        return ApiResponse.ok("CarbonFlow Enterprise Platform API", Map.of(
                 "status", "UP",
                 "service", "CarbonFlow Backend API",
                 "version", "1.0.0",
-                "runtime", "Java 21 + Spring Boot 3.3.4 (Render Docker)",
-                "authentication", "Firebase Authentication (Google Sign-In) + Enterprise JWT",
-                "firebaseProjectId", firebaseProjectId,
-                "firestoreDatabaseId", firestoreDatabaseId,
-                "firestoreConfigured", true,
-                "firestoreConnected", firestoreService.isConnected(),
-                "database", "Supabase PostgreSQL / Cloud Firestore",
-                "actuatorHealth", "/actuator/health",
                 "timestamp", Instant.now().toString()
         ));
     }
 
     @GetMapping("/api/health")
     public ApiResponse<Map<String, Object>> apiHealth() {
-        return rootHealth();
+        return ApiResponse.ok("Operation successful", Map.of(
+                "architecture", "React + Spring Boot + Spring JDBC + SQL Database",
+                "version", "1.0.0",
+                "service", "CarbonFlow Backend API",
+                "javaVersion", System.getProperty("java.version", "21"),
+                "timestamp", Instant.now().toString(),
+                "status", "UP"
+        ));
     }
 
     @GetMapping("/api/health/firestore")

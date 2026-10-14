@@ -215,4 +215,21 @@ class SecurityAndTokenVerificationTest {
         // ThreadLocal TenantContext must be completely cleared after filter completes
         assertNull(TenantContext.getOrganizationId(), "TenantContext ThreadLocal must be cleared in finally block");
     }
+
+    @Test
+    @DisplayName("8. No generated Spring Security in-memory user is configured unintentionally")
+    void testNoGeneratedInMemoryUser() {
+        org.springframework.boot.autoconfigure.SpringBootApplication annotation =
+                com.carbonflow.CarbonFlowApplication.class.getAnnotation(org.springframework.boot.autoconfigure.SpringBootApplication.class);
+        assertNotNull(annotation, "CarbonFlowApplication must have @SpringBootApplication annotation");
+
+        boolean isExcluded = false;
+        for (Class<?> excludedClass : annotation.exclude()) {
+            if (org.springframework.boot.autoconfigure.security.servlet.UserDetailsServiceAutoConfiguration.class.equals(excludedClass)) {
+                isExcluded = true;
+                break;
+            }
+        }
+        assertTrue(isExcluded, "UserDetailsServiceAutoConfiguration must be explicitly excluded to avoid default password generation");
+    }
 }

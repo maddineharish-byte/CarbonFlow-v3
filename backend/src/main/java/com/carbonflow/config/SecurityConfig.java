@@ -132,7 +132,8 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                 
                 // Public root, health check, and diagnostic endpoints
-                .requestMatchers("/", "/health", "/api/health", "/api/health/**", "/actuator/**", "/error").permitAll()
+                .requestMatchers("/", "/health", "/health/**", "/api/health", "/api/health/**", "/error").permitAll()
+                .requestMatchers("/actuator/health", "/actuator/health/**", "/actuator/info").permitAll()
                 
                 // Public authentication and onboarding endpoints
                 .requestMatchers("/api/auth/**").permitAll()
