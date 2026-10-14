@@ -109,7 +109,14 @@ const INITIAL_EMISSION_FACTORS: EmissionFactor[] = [
   { id: 'ef-005', category: 'Purchased Electricity', activityType: 'UK National Grid Average', scope: 'SCOPE_2', unit: 'kWh', factorValue: 0.000207, factorUnit: 'tCO2e/kWh', sourceReference: 'UK DEFRA / DESNZ', factorYear: 2024 },
   { id: 'ef-006', category: 'Business Travel', activityType: 'Commercial Air Travel (> 3700km)', scope: 'SCOPE_3', unit: 'passenger-km', factorValue: 0.000102, factorUnit: 'tCO2e/p-km', sourceReference: 'DEFRA / ICAO', factorYear: 2024 },
   { id: 'ef-007', category: 'Upstream Transport', activityType: 'Road Freight (Articulated Truck)', scope: 'SCOPE_3', unit: 'tonne-km', factorValue: 0.000084, factorUnit: 'tCO2e/t-km', sourceReference: 'GLEC Framework 3.0', factorYear: 2024 },
-  { id: 'ef-008', category: 'Cloud & Data Center', activityType: 'AWS us-west-2 (Hydro Powered)', scope: 'SCOPE_3', unit: 'compute-hrs', factorValue: 0.000012, factorUnit: 'tCO2e/hr', sourceReference: 'Cloud Carbon Footprint', factorYear: 2024 }
+  { id: 'ef-008', category: 'Cloud & Data Center', activityType: 'AWS us-west-2 (Hydro Powered)', scope: 'SCOPE_3', unit: 'compute-hrs', factorValue: 0.000012, factorUnit: 'tCO2e/hr', sourceReference: 'Cloud Carbon Footprint', factorYear: 2024 },
+  { id: 'ef-travel-001', category: 'Business Travel', activityType: 'Passenger Car (Gasoline Average)', scope: 'SCOPE_3', unit: 'passenger-km', factorValue: 0.000170, factorUnit: 'tCO2e/p-km', sourceReference: 'EPA GHG Emission Factors Hub 2024 / DEFRA', factorYear: 2024 },
+  { id: 'ef-travel-002', category: 'Business Travel', activityType: 'Passenger Car (Electric Vehicle - Grid Avg)', scope: 'SCOPE_3', unit: 'passenger-km', factorValue: 0.000053, factorUnit: 'tCO2e/p-km', sourceReference: 'EPA eGRID 2024 / DEFRA EV Factor', factorYear: 2024 },
+  { id: 'ef-travel-003', category: 'Business Travel', activityType: 'Passenger Car (Hybrid Electric)', scope: 'SCOPE_3', unit: 'passenger-km', factorValue: 0.000109, factorUnit: 'tCO2e/p-km', sourceReference: 'UK DEFRA / DESNZ 2024', factorYear: 2024 },
+  { id: 'ef-travel-004', category: 'Business Travel', activityType: 'Public Transit (Passenger Rail / Train)', scope: 'SCOPE_3', unit: 'passenger-km', factorValue: 0.000035, factorUnit: 'tCO2e/p-km', sourceReference: 'UK DEFRA / Amtrak Regional 2024', factorYear: 2024 },
+  { id: 'ef-travel-005', category: 'Business Travel', activityType: 'Public Transit (City Bus)', scope: 'SCOPE_3', unit: 'passenger-km', factorValue: 0.000089, factorUnit: 'tCO2e/p-km', sourceReference: 'EPA GHG Hub 2024 / DEFRA', factorYear: 2024 },
+  { id: 'ef-travel-006', category: 'Business Travel', activityType: 'Active Mobility (Walking / Bicycle)', scope: 'SCOPE_3', unit: 'passenger-km', factorValue: 0.000000, factorUnit: 'tCO2e/p-km', sourceReference: 'GHG Protocol Corporate Standard (Zero Direct)', factorYear: 2024 },
+  { id: 'ef-travel-007', category: 'Business Travel', activityType: 'Taxi / Rideshare (Single Occupancy)', scope: 'SCOPE_3', unit: 'passenger-km', factorValue: 0.000195, factorUnit: 'tCO2e/p-km', sourceReference: 'UK DEFRA / GLEC Framework 2024', factorYear: 2024 }
 ];
 
 let localCarbonRecords: CarbonRecord[] = [
@@ -421,16 +428,23 @@ async function apiFetch<T>(endpoint: string, options: RequestInit = {}): Promise
     headers.set('Content-Type', 'application/json');
   }
 
+  let errorDetail = '';
   try {
     const res = await fetch(endpoint, { ...options, headers });
     if (res.ok) {
       const json = await res.json();
       return json.data !== undefined ? json.data : json;
     }
-  } catch (err) {
-    // Backend offline / proxy fallback
+    try {
+      const errJson = await res.json();
+      errorDetail = errJson.error || errJson.message || `HTTP ${res.status}`;
+    } catch {
+      errorDetail = `HTTP ${res.status}`;
+    }
+  } catch (err: any) {
+    errorDetail = err?.message || 'Network request failed';
   }
-  throw new Error(`API fetch error on ${endpoint}`);
+  throw new Error(`API fetch error on ${endpoint}${errorDetail ? `: ${errorDetail}` : ''}`);
 }
 
 export const api = {
@@ -1296,8 +1310,8 @@ export const api = {
         totalDistanceKm: totalKm,
         durationSeconds: durationSec,
         formattedDuration: formatted,
-        routeSummary: `Optimized route via OpenFreeMap (${req.travelMode.toLowerCase()})`,
-        routingProvider: 'OPEN_FREE_MAP',
+        routeSummary: `Optimized road route (${req.travelMode.toLowerCase()})`,
+        routingProvider: 'OSRM',
         routingService: 'OSRM_ROUTING_V1',
         calculatedAt: new Date().toISOString()
       };
@@ -1364,7 +1378,7 @@ export const api = {
         oneWayDistanceKm: req.oneWayDistanceKm,
         totalDistanceKm: req.totalDistanceKm,
         durationSeconds: req.durationSeconds,
-        routingProvider: 'OPEN_FREE_MAP',
+        routingProvider: 'OSRM',
         routingService: 'OSRM_ROUTING_V1',
         routeCalculatedAt: new Date().toISOString(),
         routeSummary: req.routeSummary || 'Route via OpenFreeMap & OSRM Engine',
@@ -1374,8 +1388,9 @@ export const api = {
         status: req.autoCalculateCarbon ? 'CALCULATED' : 'PENDING',
         notes: req.notes,
         provenanceMetadata: JSON.stringify({
-          routingProvider: 'OPEN_FREE_MAP',
+          routingProvider: 'OSRM',
           routingService: 'OSRM_ROUTING_V1',
+          mapTileProvider: 'openfreemap',
           solutionAttribution: 'openfreemap_osrm_engine',
           oneWayDistanceKm: req.oneWayDistanceKm,
           totalDistanceKm: req.totalDistanceKm,

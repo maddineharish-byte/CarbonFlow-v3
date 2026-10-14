@@ -24,29 +24,35 @@ public class TravelActivityService {
 
     private static final Logger logger = LoggerFactory.getLogger(TravelActivityService.class);
 
-    private final GoogleMapsRoutingService routingService;
+    private final GoogleMapsRoutingService googleMapsRoutingService;
+    private final OsrmRoutingService osrmRoutingService;
     private final TravelActivityRepository travelRepository;
     private final EmissionFactorRepository emissionFactorRepository;
     private final CarbonDataService carbonDataService;
     private final AuditLogService auditLogService;
     private final ObjectMapper objectMapper;
+    private final String configuredProvider;
 
     public TravelActivityService(
-            GoogleMapsRoutingService routingService,
+            GoogleMapsRoutingService googleMapsRoutingService,
+            OsrmRoutingService osrmRoutingService,
             TravelActivityRepository travelRepository,
             EmissionFactorRepository emissionFactorRepository,
             CarbonDataService carbonDataService,
-            AuditLogService auditLogService) {
-        this.routingService = routingService;
+            AuditLogService auditLogService,
+            @org.springframework.beans.factory.annotation.Value("${routing.provider:osrm}") String configuredProvider) {
+        this.googleMapsRoutingService = googleMapsRoutingService;
+        this.osrmRoutingService = osrmRoutingService;
         this.travelRepository = travelRepository;
         this.emissionFactorRepository = emissionFactorRepository;
         this.carbonDataService = carbonDataService;
         this.auditLogService = auditLogService;
+        this.configuredProvider = configuredProvider != null ? configuredProvider.trim() : "osrm";
         this.objectMapper = new ObjectMapper();
     }
 
     /**
-     * Compute a live route preview with distance and duration via Google Maps Routes API v2.
+     * Compute a live route preview with distance, duration, and geometry via configured routing provider (OSRM or Google Maps).
      * Does NOT persist the route to the database.
      */
     public TravelActivityDto.RoutePreviewResponse computeRoutePreview(TravelActivityDto.RoutePreviewRequest request) {
@@ -59,12 +65,9 @@ public class TravelActivityService {
         TravelMode mode = request.travelMode() != null ? request.travelMode() : TravelMode.DRIVE;
         TripType tripType = request.tripType() != null ? request.tripType() : TripType.ONE_WAY;
 
-        GoogleMapsRoutingService.RouteResult route = routingService.computeRoute(
-                request.origin().trim(),
-                request.destination().trim(),
-                request.waypoints(),
-                mode
-        );
+        GoogleMapsRoutingService.RouteResult route = "google_maps".equalsIgnoreCase(configuredProvider)
+                ? googleMapsRoutingService.computeRoute(request.origin().trim(), request.destination().trim(), request.waypoints(), mode)
+                : osrmRoutingService.computeRoute(request.origin().trim(), request.destination().trim(), request.waypoints(), mode);
 
         double oneWayKm = BigDecimal.valueOf(route.distanceMeters())
                 .divide(BigDecimal.valueOf(1000.0), 3, RoundingMode.HALF_UP)
@@ -88,6 +91,7 @@ public class TravelActivityService {
                 formattedDuration,
                 route.routeSummary(),
                 route.encodedPolyline(),
+                route.coordinates(),
                 route.routingProvider(),
                 route.routingService(),
                 route.calculatedAt()
@@ -119,16 +123,18 @@ public class TravelActivityService {
 
         // Validate or compute canonical distance
         double oneWayKm = request.oneWayDistanceKm();
+        String activeProvider = "google_maps".equalsIgnoreCase(configuredProvider) ? "GOOGLE_MAPS" : "OSRM";
+        String activeService = "google_maps".equalsIgnoreCase(configuredProvider) ? "ROUTES_API_V2" : "OSRM_ROUTING_V1";
+
         if (oneWayKm <= 0) {
-            GoogleMapsRoutingService.RouteResult route = routingService.computeRoute(
-                    request.originAddress().trim(),
-                    request.destinationAddress().trim(),
-                    request.waypoints(),
-                    mode
-            );
+            GoogleMapsRoutingService.RouteResult route = "google_maps".equalsIgnoreCase(configuredProvider)
+                    ? googleMapsRoutingService.computeRoute(request.originAddress().trim(), request.destinationAddress().trim(), request.waypoints(), mode)
+                    : osrmRoutingService.computeRoute(request.originAddress().trim(), request.destinationAddress().trim(), request.waypoints(), mode);
             oneWayKm = BigDecimal.valueOf(route.distanceMeters())
                     .divide(BigDecimal.valueOf(1000.0), 3, RoundingMode.HALF_UP)
                     .doubleValue();
+            activeProvider = route.routingProvider();
+            activeService = route.routingService();
         }
 
         double totalKm = tripType == TripType.ROUND_TRIP
@@ -158,8 +164,8 @@ public class TravelActivityService {
         // Auto-integrate with CarbonFlow's core CarbonData calculation engine if requested
         if (request.autoCalculateCarbon()) {
             String reportingPeriod = String.valueOf(request.travelDate().getYear());
-            String provenanceNote = String.format("Travel ID: %s | Mode: %s (%s) | One-way: %.2f km | Total: %.2f km | Passengers: %d | Provider: Google Maps Routes API v2",
-                    travelId, mode.name(), request.vehicleType() != null ? request.vehicleType() : "Standard", oneWayKm, totalKm, passengers);
+            String provenanceNote = String.format("Travel ID: %s | Mode: %s (%s) | One-way: %.2f km | Total: %.2f km | Passengers: %d | Provider: %s",
+                    travelId, mode.name(), request.vehicleType() != null ? request.vehicleType() : "Standard", oneWayKm, totalKm, passengers, activeProvider);
 
             CarbonDataDto.CreateUpdateRequest carbonReq = new CarbonDataDto.CreateUpdateRequest(
                     reportingPeriod,
@@ -169,7 +175,7 @@ public class TravelActivityService {
                     activityAmountPassengerKm,
                     "passenger-km",
                     factorValue,
-                    "Google Maps Platform Routes API v2 (" + request.originAddress().trim() + " → " + request.destinationAddress().trim() + ")",
+                    "Road Routing Provider (" + request.originAddress().trim() + " → " + request.destinationAddress().trim() + ")",
                     userName,
                     "VALIDATED",
                     provenanceNote
@@ -189,11 +195,10 @@ public class TravelActivityService {
             }
         }
 
-        // Audit Provenance Metadata (Google Maps metadata without illegal geometry storage)
+        // Audit Provenance Metadata
         Map<String, Object> provenance = new LinkedHashMap<>();
-        provenance.put("routingProvider", "GOOGLE_MAPS");
-        provenance.put("routingService", "ROUTES_API_V2");
-        provenance.put("solutionAttribution", "gmp_mcp_codeassist_v1_aistudio");
+        provenance.put("routingProvider", activeProvider);
+        provenance.put("routingService", activeService);
         provenance.put("routeCalculatedAt", LocalDateTime.now().toString());
         provenance.put("oneWayDistanceKm", oneWayKm);
         provenance.put("totalDistanceKm", totalKm);

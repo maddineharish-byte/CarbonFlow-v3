@@ -29,6 +29,7 @@ import {
 } from 'lucide-react';
 import { maplibregl, initMapLibreWorker } from '../../utils/maplibre';
 import { LiveGpsTracker } from '../../components/travel/LiveGpsTracker';
+import { OpenFreeMapRouteMap } from '../../components/travel/OpenFreeMapRouteMap';
 import { api } from '../../services/api';
 import {
   TravelActivityItem,
@@ -40,23 +41,26 @@ import {
 import { useAuth } from '../../context/AuthContext';
 
 function OpenFreeMapPreview({
-  coordinates
+  coordinates,
+  origin,
+  destination
 }: {
   origin: string;
   destination: string;
   coordinates?: [number, number][];
 }) {
   const containerRef = React.useRef<HTMLDivElement>(null);
+  const [styleKey, setStyleKey] = React.useState<'liberty' | 'positron' | 'bright'>('liberty');
 
   React.useEffect(() => {
     if (!containerRef.current) return;
     initMapLibreWorker();
-    const initialCenter: [number, number] = coordinates && coordinates.length > 0 ? coordinates[0] : [-122.4194, 37.7749];
+    const initialCenter: [number, number] = coordinates && coordinates.length > 0 ? coordinates[0] : [-87.6298, 41.8781];
     const map = new maplibregl.Map({
       container: containerRef.current,
-      style: 'https://tiles.openfreemap.org/styles/liberty',
+      style: `https://tiles.openfreemap.org/styles/${styleKey}`,
       center: initialCenter,
-      zoom: 11,
+      zoom: 10,
       attributionControl: false
     });
 
@@ -73,6 +77,20 @@ function OpenFreeMapPreview({
             }
           }
         });
+
+        // Casing layer
+        map.addLayer({
+          id: 'route-casing',
+          type: 'line',
+          source: 'route',
+          paint: {
+            'line-color': '#064e3b',
+            'line-width': 7,
+            'line-opacity': 0.35
+          }
+        });
+
+        // Main line
         map.addLayer({
           id: 'route-line',
           type: 'line',
@@ -83,20 +101,46 @@ function OpenFreeMapPreview({
           }
         });
 
+        // Origin Marker (A)
+        const originEl = document.createElement('div');
+        originEl.innerHTML = `<div style="background:#059669;color:#fff;font-weight:700;font-size:10px;padding:2px 6px;border-radius:9999px;border:2px solid #fff;box-shadow:0 2px 4px rgba(0,0,0,0.3)">A</div>`;
+        new maplibregl.Marker({ element: originEl, anchor: 'bottom' })
+          .setLngLat(coordinates[0])
+          .addTo(map);
+
+        // Destination Marker (B)
+        const destEl = document.createElement('div');
+        destEl.innerHTML = `<div style="background:#e11d48;color:#fff;font-weight:700;font-size:10px;padding:2px 6px;border-radius:9999px;border:2px solid #fff;box-shadow:0 2px 4px rgba(0,0,0,0.3)">B</div>`;
+        new maplibregl.Marker({ element: destEl, anchor: 'bottom' })
+          .setLngLat(coordinates[coordinates.length - 1])
+          .addTo(map);
+
         const bounds = new maplibregl.LngLatBounds();
         coordinates.forEach(c => bounds.extend(c));
-        map.fitBounds(bounds, { padding: 30 });
+        map.fitBounds(bounds, { padding: 40 });
       }
     });
 
     return () => {
       map.remove();
     };
-  }, [coordinates]);
+  }, [coordinates, styleKey]);
 
   return (
-    <div className="h-44 w-full rounded-lg overflow-hidden border border-emerald-200 relative">
+    <div className="h-52 w-full rounded-xl overflow-hidden border border-emerald-200 relative bg-stone-100 shadow-xs">
       <div ref={containerRef} className="w-full h-full" />
+      <div className="absolute top-2 left-2 z-10 flex items-center gap-1 bg-white/90 backdrop-blur-xs p-1 rounded-lg border border-stone-200 text-[10px] font-semibold">
+        {(['liberty', 'positron', 'bright'] as const).map(s => (
+          <button
+            key={s}
+            type="button"
+            onClick={() => setStyleKey(s)}
+            className={`px-1.5 py-0.5 rounded capitalize ${styleKey === s ? 'bg-emerald-800 text-white' : 'text-stone-600 hover:bg-stone-100'}`}
+          >
+            {s}
+          </button>
+        ))}
+      </div>
       <div className="absolute bottom-1 right-2 bg-white/90 px-2 py-0.5 text-[9px] rounded font-mono text-stone-600 border border-stone-200 shadow-xs z-10">
         OpenFreeMap • MapLibre GL
       </div>
@@ -106,7 +150,7 @@ function OpenFreeMapPreview({
 
 export function TravelMobilityPage() {
   const { role } = useAuth();
-  const [activeTab, setActiveTab] = useState<'tracker' | 'ledger'>('tracker');
+  const [activeTab, setActiveTab] = useState<'map' | 'tracker' | 'ledger'>('map');
   const [resolvingGpsField, setResolvingGpsField] = useState<'origin' | 'destination' | null>(null);
   const [activities, setActivities] = useState<TravelActivityItem[]>([]);
   const [factors, setFactors] = useState<EmissionFactor[]>([]);
@@ -440,28 +484,44 @@ export function TravelMobilityPage() {
         </div>
       </div>
 
-      {/* View Switcher Tabs: Live GPS Tracker vs. Travel Ledger */}
-      <div className="flex items-center gap-2 border-b border-stone-200">
+      {/* View Switcher Tabs: Interactive Route Map vs. Live GPS Tracker vs. Travel Ledger */}
+      <div className="flex items-center gap-2 border-b border-stone-200 overflow-x-auto">
+        <button
+          type="button"
+          onClick={() => setActiveTab('map')}
+          className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold border-b-2 transition -mb-px shrink-0 ${
+            activeTab === 'map'
+              ? 'border-emerald-800 text-emerald-950 bg-emerald-50/50'
+              : 'border-transparent text-stone-500 hover:text-stone-800 hover:border-stone-300'
+          }`}
+        >
+          <Compass className={`h-4 w-4 ${activeTab === 'map' ? 'text-emerald-700' : 'text-stone-400'}`} />
+          <span>Interactive Route Planner & Map</span>
+          <span className="rounded-full bg-emerald-100 text-emerald-950 px-2 py-0.5 text-[10px] font-mono font-semibold">
+            OpenFreeMap
+          </span>
+        </button>
+
         <button
           type="button"
           onClick={() => setActiveTab('tracker')}
-          className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold border-b-2 transition -mb-px ${
+          className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold border-b-2 transition -mb-px shrink-0 ${
             activeTab === 'tracker'
               ? 'border-emerald-800 text-emerald-950 bg-emerald-50/50'
               : 'border-transparent text-stone-500 hover:text-stone-800 hover:border-stone-300'
           }`}
         >
           <Radio className={`h-4 w-4 ${activeTab === 'tracker' ? 'text-emerald-700 animate-pulse' : 'text-stone-400'}`} />
-          <span>Live GPS Distance Tracker</span>
-          <span className="rounded-full bg-emerald-100 text-emerald-950 px-2 py-0.5 text-[10px] font-mono font-semibold">
-            OpenFreeMap Live
+          <span>Live GPS Telemetry Tracker</span>
+          <span className="rounded-full bg-stone-100 text-stone-700 px-2 py-0.5 text-[10px] font-mono">
+            GPS Stream
           </span>
         </button>
 
         <button
           type="button"
           onClick={() => setActiveTab('ledger')}
-          className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold border-b-2 transition -mb-px ${
+          className={`flex items-center gap-2 px-4 py-2.5 text-xs font-bold border-b-2 transition -mb-px shrink-0 ${
             activeTab === 'ledger'
               ? 'border-emerald-800 text-emerald-950 bg-emerald-50/50'
               : 'border-transparent text-stone-500 hover:text-stone-800 hover:border-stone-300'
@@ -474,6 +534,16 @@ export function TravelMobilityPage() {
           </span>
         </button>
       </div>
+
+      {activeTab === 'map' && (
+        <OpenFreeMapRouteMap
+          onSaveTrip={async (tripData) => {
+            await api.createTravelActivity(tripData);
+            await loadData();
+            setActiveTab('ledger');
+          }}
+        />
+      )}
 
       {activeTab === 'tracker' && (
         <LiveGpsTracker
@@ -1069,10 +1139,20 @@ export function TravelMobilityPage() {
             </div>
 
             <div className="p-6 space-y-4 text-xs text-stone-700">
-              <div className="rounded-lg bg-emerald-50/60 border border-emerald-200 p-3.5 space-y-1.5">
-                <div className="font-bold text-emerald-900">{provenanceModalItem.title}</div>
+              <div className="rounded-xl bg-emerald-50/60 border border-emerald-200 p-3.5 space-y-1.5">
+                <div className="font-bold text-emerald-950 text-sm">{provenanceModalItem.title}</div>
                 <div className="text-[11px] text-emerald-800">
                   Logged on {provenanceModalItem.travelDate} by {provenanceModalItem.userFullName}
+                </div>
+                <div className="pt-2 border-t border-emerald-100 flex flex-col gap-1 text-[11px]">
+                  <div className="flex items-center gap-2">
+                    <span className="flex h-3.5 w-3.5 items-center justify-center rounded-full bg-emerald-700 text-[9px] font-bold text-white shrink-0">A</span>
+                    <span className="text-stone-700 truncate"><strong>Origin:</strong> {provenanceModalItem.originAddress}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="flex h-3.5 w-3.5 items-center justify-center rounded-full bg-rose-600 text-[9px] font-bold text-white shrink-0">B</span>
+                    <span className="text-stone-700 truncate"><strong>Destination:</strong> {provenanceModalItem.destinationAddress}</span>
+                  </div>
                 </div>
               </div>
 

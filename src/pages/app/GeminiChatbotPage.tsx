@@ -67,7 +67,7 @@ const ROLE_PRESETS: ChatRolePreset[] = [
 
 export function GeminiChatbotPage() {
   const { user, organization } = useAuth();
-  const [selectedModel, setSelectedModel] = useState<GeminiModelType>('gemini-3.5-flash');
+  const [selectedModel, setSelectedModel] = useState<GeminiModelType>('gemini-3.1-flash-lite');
   const [selectedRole, setSelectedRole] = useState<ChatRolePreset>(ROLE_PRESETS[0]);
   const [customInstruction, setCustomInstruction] = useState<string>(ROLE_PRESETS[0].instruction);
   const [showConfig, setShowConfig] = useState(false);
@@ -78,7 +78,7 @@ export function GeminiChatbotPage() {
       role: 'model',
       text: `Hello ${user?.fullName || 'there'}! I am your CarbonFlow AI Assistant powered by Google Gemini. \n\nI am currently operating as the **${ROLE_PRESETS[0].name}**. You can consult me regarding GHG protocol calculations, ISO 14064-3 verification, travel distance emissions, or compliance evidence. How can I assist your organization today?`,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      modelUsed: 'gemini-3.5-flash'
+      modelUsed: 'gemini-3.1-flash-lite'
     }
   ]);
 
@@ -242,21 +242,8 @@ export function GeminiChatbotPage() {
             </div>
           </div>
 
-          {/* Model Selection Tabs per prompt specifications */}
+          {/* Model Selection Tabs per gemini-api skill */}
           <div className="flex items-center gap-1.5 bg-stone-100 p-1 rounded-lg border border-stone-200 text-xs">
-            <button
-              onClick={() => setSelectedModel('gemini-3.5-flash')}
-              className={`flex items-center gap-1 px-2.5 py-1.5 rounded-md font-medium transition ${
-                selectedModel === 'gemini-3.5-flash'
-                  ? 'bg-white text-emerald-900 shadow-2xs font-semibold'
-                  : 'text-stone-600 hover:text-stone-900'
-              }`}
-              title="gemini-3.5-flash: Balanced, standard tasks"
-            >
-              <Zap className="h-3 w-3 text-amber-500" />
-              <span>General (3.5-Flash)</span>
-            </button>
-
             <button
               onClick={() => setSelectedModel('gemini-3.1-flash-lite')}
               className={`flex items-center gap-1 px-2.5 py-1.5 rounded-md font-medium transition ${
@@ -264,10 +251,23 @@ export function GeminiChatbotPage() {
                   ? 'bg-white text-emerald-900 shadow-2xs font-semibold'
                   : 'text-stone-600 hover:text-stone-900'
               }`}
-              title="gemini-3.1-flash-lite: Fast, low latency tasks"
+              title="gemini-3.1-flash-lite: Fast, highly available, low latency tasks (Recommended)"
             >
               <Zap className="h-3 w-3 text-emerald-600" />
               <span>Fast (3.1-Lite)</span>
+            </button>
+
+            <button
+              onClick={() => setSelectedModel('gemini-3.8-flash')}
+              className={`flex items-center gap-1 px-2.5 py-1.5 rounded-md font-medium transition ${
+                selectedModel === 'gemini-3.8-flash'
+                  ? 'bg-white text-emerald-900 shadow-2xs font-semibold'
+                  : 'text-stone-600 hover:text-stone-900'
+              }`}
+              title="gemini-3.8-flash: Standard reasoning and general tasks"
+            >
+              <Zap className="h-3 w-3 text-amber-500" />
+              <span>General (3.8-Flash)</span>
             </button>
 
             <button
@@ -277,7 +277,7 @@ export function GeminiChatbotPage() {
                   ? 'bg-white text-emerald-900 shadow-2xs font-semibold'
                   : 'text-stone-600 hover:text-stone-900'
               }`}
-              title="gemini-3.1-pro-preview: Deep reasoning for complex audits and math"
+              title="gemini-3.1-pro-preview: Deep reasoning for complex audits and calculations"
             >
               <Brain className="h-3 w-3 text-purple-600" />
               <span>Complex (3.1-Pro)</span>

@@ -22,14 +22,14 @@ public class TravelActivityController {
     }
 
     /**
-     * Compute a live preview of a route using Google Maps Routes API v2.
+     * Compute a live preview of a route using verified road routing provider (OSRM / Google Maps).
      * Accessible by all authenticated tenant employees and managers.
      */
     @PostMapping("/route")
     public ResponseEntity<ApiResponse<TravelActivityDto.RoutePreviewResponse>> calculateRoutePreview(
             @RequestBody TravelActivityDto.RoutePreviewRequest request) {
         TravelActivityDto.RoutePreviewResponse preview = travelService.computeRoutePreview(request);
-        return ResponseEntity.ok(ApiResponse.ok("Route calculated successfully via Google Maps.", preview));
+        return ResponseEntity.ok(ApiResponse.ok("Route calculated successfully via road routing provider.", preview));
     }
 
     /**

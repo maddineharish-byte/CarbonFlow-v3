@@ -10,20 +10,52 @@ dotenv.config();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
-const PORT = Number(process.env.PORT) || 3000;
+
+function resolvePort(): number {
+  const portArgIndex = process.argv.indexOf('--port');
+  if (portArgIndex !== -1 && process.argv[portArgIndex + 1]) {
+    const parsed = Number(process.argv[portArgIndex + 1]);
+    if (!isNaN(parsed) && parsed > 0) return parsed;
+  }
+  if (process.env.DEFAULT_APP_PORT) {
+    const parsed = Number(process.env.DEFAULT_APP_PORT);
+    if (!isNaN(parsed) && parsed > 0) return parsed;
+  }
+  // In containerized AI Studio, PORT=8080 is reserved for nginx reverse proxy.
+  // The backend/Express dev server must listen on port 3000.
+  if (process.env.PORT && process.env.PORT !== '8080') {
+    const parsed = Number(process.env.PORT);
+    if (!isNaN(parsed) && parsed > 0) return parsed;
+  }
+  return 3000;
+}
+
+function resolveHost(): string {
+  const hostArgIndex = process.argv.indexOf('--host');
+  if (hostArgIndex !== -1 && process.argv[hostArgIndex + 1]) {
+    return process.argv[hostArgIndex + 1];
+  }
+  return '0.0.0.0';
+}
+
+const PORT = resolvePort();
+const HOST = resolveHost();
 
 app.use(express.json());
 
 // Server-side GoogleGenAI client per gemini_api skill
-const apiKey = process.env.GEMINI_API_KEY || '';
-const ai = new GoogleGenAI({
-  apiKey,
-  httpOptions: {
-    headers: {
-      'User-Agent': 'aistudio-build',
+function getGeminiClient(): GoogleGenAI | null {
+  const key = process.env.GEMINI_API_KEY || '';
+  if (!key.trim()) return null;
+  return new GoogleGenAI({
+    apiKey: key,
+    httpOptions: {
+      headers: {
+        'User-Agent': 'aistudio-build',
+      }
     }
-  }
-});
+  });
+}
 
 // ==========================================
 // FULL-STACK CARBONFLOW API ROUTES
@@ -248,6 +280,30 @@ app.get('/api/reports/dashboard', (_req, res) => {
   });
 });
 
+// 5.0 Emission Factors Registry (aligned with V3__travel_mobility.sql & EPA/DEFRA standards)
+let serverEmissionFactors = [
+  { id: 'ef-001', category: 'Stationary Combustion', activityType: 'Natural Gas (Commercial Boiler)', scope: 'SCOPE_1', unit: 'therms', factorValue: 0.0053, factorUnit: 'tCO2e/therm', sourceReference: 'EPA GHG Hub', factorYear: 2024 },
+  { id: 'ef-002', category: 'Mobile Combustion', activityType: 'Fleet Diesel Fuel', scope: 'SCOPE_1', unit: 'gallons', factorValue: 0.01021, factorUnit: 'tCO2e/gal', sourceReference: 'EPA GHG Hub', factorYear: 2024 },
+  { id: 'ef-003', category: 'Fugitive Emissions', activityType: 'Refrigerant HFC R-410A Leakage', scope: 'SCOPE_1', unit: 'kg', factorValue: 2.088, factorUnit: 'tCO2e/kg', sourceReference: 'IPCC AR5 GWP-100', factorYear: 2024 },
+  { id: 'ef-004', category: 'Purchased Electricity', activityType: 'US Grid Average (eGRID CAMX)', scope: 'SCOPE_2', unit: 'kWh', factorValue: 0.000215, factorUnit: 'tCO2e/kWh', sourceReference: 'EPA eGRID 2024', factorYear: 2024 },
+  { id: 'ef-005', category: 'Purchased Electricity', activityType: 'UK National Grid Average', scope: 'SCOPE_2', unit: 'kWh', factorValue: 0.000207, factorUnit: 'tCO2e/kWh', sourceReference: 'UK DEFRA / DESNZ', factorYear: 2024 },
+  { id: 'ef-006', category: 'Business Travel', activityType: 'Commercial Air Travel (> 3700km)', scope: 'SCOPE_3', unit: 'passenger-km', factorValue: 0.000102, factorUnit: 'tCO2e/p-km', sourceReference: 'DEFRA / ICAO', factorYear: 2024 },
+  { id: 'ef-007', category: 'Upstream Transport', activityType: 'Road Freight (Articulated Truck)', scope: 'SCOPE_3', unit: 'tonne-km', factorValue: 0.000084, factorUnit: 'tCO2e/t-km', sourceReference: 'GLEC Framework 3.0', factorYear: 2024 },
+  { id: 'ef-008', category: 'Cloud & Data Center', activityType: 'AWS us-west-2 (Hydro Powered)', scope: 'SCOPE_3', unit: 'compute-hrs', factorValue: 0.000012, factorUnit: 'tCO2e/hr', sourceReference: 'Cloud Carbon Footprint', factorYear: 2024 },
+  // Standard Ground & Business Travel Emission Factors (Scope 3 Category 6)
+  { id: 'ef-travel-001', category: 'Business Travel', activityType: 'Passenger Car (Gasoline Average)', scope: 'SCOPE_3', unit: 'passenger-km', factorValue: 0.000170, factorUnit: 'tCO2e/p-km', sourceReference: 'EPA GHG Emission Factors Hub 2024 / DEFRA', factorYear: 2024 },
+  { id: 'ef-travel-002', category: 'Business Travel', activityType: 'Passenger Car (Electric Vehicle - Grid Avg)', scope: 'SCOPE_3', unit: 'passenger-km', factorValue: 0.000053, factorUnit: 'tCO2e/p-km', sourceReference: 'EPA eGRID 2024 / DEFRA EV Factor', factorYear: 2024 },
+  { id: 'ef-travel-003', category: 'Business Travel', activityType: 'Passenger Car (Hybrid Electric)', scope: 'SCOPE_3', unit: 'passenger-km', factorValue: 0.000109, factorUnit: 'tCO2e/p-km', sourceReference: 'UK DEFRA / DESNZ 2024', factorYear: 2024 },
+  { id: 'ef-travel-004', category: 'Business Travel', activityType: 'Public Transit (Passenger Rail / Train)', scope: 'SCOPE_3', unit: 'passenger-km', factorValue: 0.000035, factorUnit: 'tCO2e/p-km', sourceReference: 'UK DEFRA / Amtrak Regional 2024', factorYear: 2024 },
+  { id: 'ef-travel-005', category: 'Business Travel', activityType: 'Public Transit (City Bus)', scope: 'SCOPE_3', unit: 'passenger-km', factorValue: 0.000089, factorUnit: 'tCO2e/p-km', sourceReference: 'EPA GHG Hub 2024 / DEFRA', factorYear: 2024 },
+  { id: 'ef-travel-006', category: 'Business Travel', activityType: 'Active Mobility (Walking / Bicycle)', scope: 'SCOPE_3', unit: 'passenger-km', factorValue: 0.000000, factorUnit: 'tCO2e/p-km', sourceReference: 'GHG Protocol Corporate Standard (Zero Direct)', factorYear: 2024 },
+  { id: 'ef-travel-007', category: 'Business Travel', activityType: 'Taxi / Rideshare (Single Occupancy)', scope: 'SCOPE_3', unit: 'passenger-km', factorValue: 0.000195, factorUnit: 'tCO2e/p-km', sourceReference: 'UK DEFRA / GLEC Framework 2024', factorYear: 2024 }
+];
+
+app.get('/api/carbon-data/emission-factors', (_req, res) => {
+  return res.json(serverEmissionFactors);
+});
+
 // 5.1 Carbon Data
 let serverCarbonRecords = [
   { id: 'carb-001', organizationId: 'org-demo-001', reportingPeriod: '2025-Q1', scope: 'SCOPE_1', category: 'Stationary Combustion', activityType: 'Natural Gas Heating (HQ)', activityAmount: 18450, unit: 'therms', emissionFactor: 0.00531, calculatedEmissions: 97.97, source: 'Utility Bill (PG&E)', dataOwner: 'David Kim', status: 'VALIDATED', notes: 'Main headquarters hydronic heating boiler system.', createdAt: '2025-01-31T08:00:00Z' },
@@ -389,9 +445,153 @@ app.get('/maplibre-gl-worker.mjs', (_req, res) => {
   return res.status(404).send('Worker not found');
 });
 
+// ==========================================
+// TRAVEL & MOBILITY PERSISTENCE STORE
+// ==========================================
+let serverTravelActivities: any[] = [
+  {
+    id: 'trv-001',
+    organizationId: 'org-demo-001',
+    userId: 'usr-admin-001',
+    userFullName: 'Sarah Chen',
+    title: 'Client Site Audit - Chicago to Milwaukee',
+    travelDate: '2025-03-15',
+    tripType: 'ROUND_TRIP',
+    travelMode: 'DRIVE',
+    vehicleType: 'Passenger Car (Gasoline Average)',
+    originAddress: '200 S Wacker Dr, Chicago, IL',
+    destinationAddress: '100 E Wisconsin Ave, Milwaukee, WI',
+    waypointsJson: null,
+    passengerCount: 2,
+    oneWayDistanceKm: 148.5,
+    totalDistanceKm: 297.0,
+    durationSeconds: 7200,
+    routingProvider: 'OSRM',
+    routingService: 'OSRM_ROUTING_V1',
+    routeCalculatedAt: '2025-03-15T08:00:00Z',
+    routeSummary: 'I-94 N via Kenosha & Racine',
+    emissionFactorId: 'ef-travel-001',
+    emissionFactorValue: 0.000170,
+    calculatedEmissions: 0.1010,
+    carbonDataId: 'carb-006',
+    status: 'CALCULATED',
+    notes: 'Onsite ESG supplier assurance and facility walkthrough',
+    provenanceMetadata: JSON.stringify({
+      routingProvider: 'OSRM',
+      routingService: 'OSRM_ROUTING_V1',
+      mapTileProvider: 'openfreemap',
+      solutionAttribution: 'openfreemap_osrm_engine',
+      oneWayDistanceMeters: 148500,
+      oneWayDistanceKm: 148.5,
+      totalDistanceKm: 297.0,
+      passengerCount: 2,
+      activityAmountPassengerKm: 594.0,
+      factorValue: 0.000170,
+      factorUnit: 'tCO2e/p-km',
+      factorSource: 'EPA GHG Emission Factors Hub 2024 / DEFRA',
+      calculatedAt: '2025-03-15T08:00:00Z'
+    }),
+    createdAt: '2025-03-15T08:00:00Z',
+    updatedAt: '2025-03-15T08:00:00Z'
+  },
+  {
+    id: 'trv-002',
+    organizationId: 'org-demo-001',
+    userId: 'usr-analyst-003',
+    userFullName: 'Elena Rostova',
+    title: 'Regional Data Center Inspection - San Francisco to Sunnyvale',
+    travelDate: '2025-03-22',
+    tripType: 'ROUND_TRIP',
+    travelMode: 'DRIVE',
+    vehicleType: 'Passenger Car (Electric Vehicle - Grid Avg)',
+    originAddress: 'Market St, San Francisco, CA',
+    destinationAddress: 'Mathilda Ave, Sunnyvale, CA',
+    waypointsJson: null,
+    passengerCount: 1,
+    oneWayDistanceKm: 65.2,
+    totalDistanceKm: 130.4,
+    durationSeconds: 3400,
+    routingProvider: 'OSRM',
+    routingService: 'OSRM_ROUTING_V1',
+    routeCalculatedAt: '2025-03-22T09:15:00Z',
+    routeSummary: 'US-101 S Silicon Valley Corridor',
+    emissionFactorId: 'ef-travel-002',
+    emissionFactorValue: 0.000053,
+    calculatedEmissions: 0.0069,
+    status: 'CALCULATED',
+    notes: 'Q1 Server efficiency verification with company EV fleet',
+    provenanceMetadata: JSON.stringify({
+      routingProvider: 'OSRM',
+      routingService: 'OSRM_ROUTING_V1',
+      mapTileProvider: 'openfreemap',
+      solutionAttribution: 'openfreemap_osrm_engine',
+      oneWayDistanceMeters: 65200,
+      oneWayDistanceKm: 65.2,
+      totalDistanceKm: 130.4,
+      passengerCount: 1,
+      activityAmountPassengerKm: 130.4,
+      factorValue: 0.000053,
+      factorUnit: 'tCO2e/p-km',
+      factorSource: 'EPA eGRID 2024 / DEFRA EV Factor',
+      calculatedAt: '2025-03-22T09:15:00Z'
+    }),
+    createdAt: '2025-03-22T09:15:00Z',
+    updatedAt: '2025-03-22T09:15:00Z'
+  },
+  {
+    id: 'trv-003',
+    organizationId: 'org-demo-001',
+    userId: 'usr-mgr-002',
+    userFullName: 'Marcus Vance',
+    title: 'Executive ESG Summit - Boston to Providence',
+    travelDate: '2025-04-02',
+    tripType: 'ONE_WAY',
+    travelMode: 'TRANSIT',
+    vehicleType: 'Public Transit (Passenger Rail / Train)',
+    originAddress: 'South Station, Boston, MA',
+    destinationAddress: 'Amtrak Station, Providence, RI',
+    waypointsJson: null,
+    passengerCount: 1,
+    oneWayDistanceKm: 78.4,
+    totalDistanceKm: 78.4,
+    durationSeconds: 2700,
+    routingProvider: 'OSRM',
+    routingService: 'OSRM_ROUTING_V1',
+    routeCalculatedAt: '2025-04-02T07:45:00Z',
+    routeSummary: 'Amtrak Northeast Regional Rail',
+    emissionFactorId: 'ef-travel-004',
+    emissionFactorValue: 0.000035,
+    calculatedEmissions: 0.0027,
+    status: 'CALCULATED',
+    notes: 'Clean rail transit selected over vehicle travel',
+    provenanceMetadata: JSON.stringify({
+      routingProvider: 'OSRM',
+      routingService: 'OSRM_ROUTING_V1',
+      mapTileProvider: 'openfreemap',
+      solutionAttribution: 'openfreemap_osrm_engine',
+      oneWayDistanceMeters: 78400,
+      oneWayDistanceKm: 78.4,
+      totalDistanceKm: 78.4,
+      passengerCount: 1,
+      activityAmountPassengerKm: 78.4,
+      factorValue: 0.000035,
+      factorUnit: 'tCO2e/p-km',
+      factorSource: 'UK DEFRA / Amtrak Regional 2024',
+      calculatedAt: '2025-04-02T07:45:00Z'
+    }),
+    createdAt: '2025-04-02T07:45:00Z',
+    updatedAt: '2025-04-02T07:45:00Z'
+  }
+];
+
+// 6.0 Maps Provider Configuration (OpenFreeMap default per spec)
 app.get('/api/maps/config', (_req, res) => {
+  const mapProvider = (process.env.MAP_TILE_PROVIDER || 'openfreemap').toLowerCase();
+  const routingProvider = (process.env.ROUTING_PROVIDER || 'osrm').toLowerCase();
   return res.json({
-    provider: 'OpenFreeMap',
+    provider: mapProvider,
+    mapTileProvider: mapProvider,
+    routingProvider,
     styles: {
       liberty: 'https://tiles.openfreemap.org/styles/liberty',
       positron: 'https://tiles.openfreemap.org/styles/positron',
@@ -401,6 +601,7 @@ app.get('/api/maps/config', (_req, res) => {
   });
 });
 
+// 6.1 Reverse Geocoding (OpenStreetMap Nominatim)
 app.get('/api/travel/reverse-geocode', async (req, res) => {
   try {
     const lat = req.query.lat;
@@ -432,6 +633,7 @@ app.get('/api/travel/reverse-geocode', async (req, res) => {
   }
 });
 
+// 6.2 Address Geocoding (OpenStreetMap Nominatim)
 app.get('/api/travel/geocode', async (req, res) => {
   try {
     const query = req.query.q as string;
@@ -460,6 +662,7 @@ app.get('/api/travel/geocode', async (req, res) => {
   }
 });
 
+// 6.3 Road Distance & Route Geometry Calculation (OSRM Routing Provider)
 app.post('/api/travel/route', async (req, res) => {
   try {
     const { origin, destination, travelMode = 'DRIVE', tripType = 'ROUND_TRIP' } = req.body;
@@ -531,6 +734,7 @@ app.post('/api/travel/route', async (req, res) => {
     let durationSeconds = 0;
     let coordinates: [number, number][] = [];
 
+    // Query independent road routing engine (OSRM)
     try {
       const osrmUrl = `https://router.project-osrm.org/route/v1/${osrmProfile}/${startLng},${startLat};${endLng},${endLat}?overview=full&geometries=geojson`;
       const osrmRes = await fetch(osrmUrl);
@@ -547,6 +751,7 @@ app.post('/api/travel/route', async (req, res) => {
     }
 
     if (distanceMeters === 0) {
+      // Deterministic geodesic fallback with 1.25 winding road factor
       const dLat = ((endLat - startLat) * Math.PI) / 180;
       const dLon = ((endLng - startLng) * Math.PI) / 180;
       const a =
@@ -569,6 +774,9 @@ app.post('/api/travel/route', async (req, res) => {
     const mins = Math.floor((durationSeconds % 3600) / 60);
     const formatted = hrs > 0 ? `${hrs} hr ${mins} min` : `${mins} min`;
 
+    const routingProvider = (process.env.ROUTING_PROVIDER || 'OSRM').toUpperCase();
+    const mapTileProvider = (process.env.MAP_TILE_PROVIDER || 'openfreemap').toLowerCase();
+
     return res.json({
       origin: originStr,
       destination: destStr,
@@ -579,15 +787,251 @@ app.post('/api/travel/route', async (req, res) => {
       totalDistanceKm: totalKm,
       durationSeconds,
       formattedDuration: formatted,
-      routeSummary: `OpenFreeMap • OSRM Open Source Route (${oneWayKm} km, ${formatted})`,
+      routeSummary: `${routingProvider} ${travelMode} Route (${oneWayKm} km, ${formatted})`,
       coordinates,
-      routingProvider: 'OPEN_FREE_MAP',
-      routingService: 'OSRM_NOMINATIM',
+      routingProvider,
+      routingService: 'OSRM_ROUTING_V1',
+      mapTileProvider,
       calculatedAt: new Date().toISOString()
     });
   } catch (err: any) {
     return res.status(500).json({ error: err.message || 'Route calculation error' });
   }
+});
+
+// 6.4 Travel Activities Ledger - List with Tenant Isolation & Filtering
+app.get('/api/travel', (req, res) => {
+  const { userId, status, travelMode, page = '1', size = '20' } = req.query as Record<string, string>;
+  const orgId = 'org-demo-001';
+
+  let items = serverTravelActivities.filter(t => t.organizationId === orgId);
+  if (userId) {
+    items = items.filter(t => t.userId === userId);
+  }
+  if (status && status !== 'ALL') {
+    items = items.filter(t => t.status === status);
+  }
+  if (travelMode && travelMode !== 'ALL') {
+    items = items.filter(t => t.travelMode === travelMode);
+  }
+
+  const p = Math.max(1, parseInt(page) || 1);
+  const s = Math.max(1, parseInt(size) || 20);
+  const total = items.length;
+  const paginated = items.slice((p - 1) * s, p * s);
+
+  return res.json({
+    items: paginated,
+    total,
+    page: p,
+    size: s,
+    totalPages: Math.ceil(total / s)
+  });
+});
+
+// 6.5 Create & Persist Travel Activity (With Verified Factor Calculation & Tenant Boundaries)
+app.post('/api/travel', (req, res) => {
+  const body = req.body || {};
+  const orgId = 'org-demo-001';
+  const userId = 'usr-admin-001';
+  const userFullName = 'Sarah Chen';
+
+  const {
+    title,
+    travelDate = new Date().toISOString().split('T')[0],
+    tripType = 'ONE_WAY',
+    travelMode = 'DRIVE',
+    vehicleType = 'Passenger Car (Gasoline Average)',
+    originAddress,
+    destinationAddress,
+    waypoints = [],
+    passengerCount = 1,
+    oneWayDistanceKm = 0,
+    totalDistanceKm = 0,
+    durationSeconds = 0,
+    routeSummary = '',
+    notes = '',
+    emissionFactorId = 'ef-travel-001',
+    autoCalculateCarbon = false
+  } = body;
+
+  if (!originAddress || !destinationAddress) {
+    return res.status(400).json({ error: 'Origin and destination addresses are required.' });
+  }
+
+  const passengers = Math.max(1, Number(passengerCount) || 1);
+  const oneWayKm = Number(oneWayDistanceKm) || 0;
+  const finalTotalKm = Number(totalDistanceKm) || (tripType === 'ROUND_TRIP' ? oneWayKm * 2 : oneWayKm);
+
+  // Resolve documented emission factor
+  let factor = serverEmissionFactors.find(f => f.id === emissionFactorId);
+  if (!factor) {
+    if (travelMode === 'WALK' || travelMode === 'BICYCLE') {
+      factor = serverEmissionFactors.find(f => f.id === 'ef-travel-006');
+    } else if (travelMode === 'TRANSIT') {
+      factor = serverEmissionFactors.find(f => f.id === 'ef-travel-004');
+    } else {
+      factor = serverEmissionFactors.find(f => f.id === 'ef-travel-001');
+    }
+  }
+
+  const factorValue = factor ? factor.factorValue : (travelMode === 'WALK' || travelMode === 'BICYCLE' ? 0.0 : 0.000170);
+
+  // Formula: Activity (passenger-km) = totalDistanceKm * passengerCount
+  // Emissions = Activity * FactorValue
+  const activityAmountPassengerKm = parseFloat((finalTotalKm * passengers).toFixed(3));
+  const calculatedEmissions = parseFloat((activityAmountPassengerKm * factorValue).toFixed(4));
+
+  const travelId = `trv-${Date.now()}`;
+  let carbonDataId = null;
+  let status = 'PENDING';
+
+  // If requested, auto-post verified travel emission to central Scope 3 Carbon Data ledger
+  if (autoCalculateCarbon) {
+    const reportingPeriod = `${new Date(travelDate).getFullYear()}-Q${Math.floor(new Date(travelDate).getMonth() / 3) + 1}`;
+    const carbonRecordId = `carb-${Date.now()}`;
+    const newCarbonRecord = {
+      id: carbonRecordId,
+      organizationId: orgId,
+      reportingPeriod,
+      scope: 'SCOPE_3',
+      category: 'Business Travel',
+      activityType: factor ? factor.activityType : 'Business Travel',
+      activityAmount: activityAmountPassengerKm,
+      unit: 'passenger-km',
+      emissionFactor: factorValue,
+      calculatedEmissions,
+      source: `OpenFreeMap & OSRM Engine (${originAddress} → ${destinationAddress})`,
+      dataOwner: userFullName,
+      status: 'VALIDATED',
+      notes: `Travel Activity ${travelId} (${travelMode}, ${finalTotalKm} km, ${passengers} travelers). Provenance logged via OpenFreeMap vector tiles & OSRM routing.`,
+      createdAt: new Date().toISOString()
+    };
+    serverCarbonRecords.unshift(newCarbonRecord);
+    carbonDataId = carbonRecordId;
+    status = 'CALCULATED';
+  }
+
+  const routingProvider = (process.env.ROUTING_PROVIDER || 'OSRM').toUpperCase();
+  const mapTileProvider = (process.env.MAP_TILE_PROVIDER || 'openfreemap').toLowerCase();
+
+  const provenanceMetadata = JSON.stringify({
+    routingProvider,
+    routingService: 'OSRM_ROUTING_V1',
+    mapTileProvider,
+    solutionAttribution: 'openfreemap_osrm_engine',
+    oneWayDistanceKm: oneWayKm,
+    totalDistanceKm: finalTotalKm,
+    passengerCount: passengers,
+    activityAmountPassengerKm,
+    factorValue,
+    factorUnit: factor?.factorUnit || 'tCO2e/p-km',
+    factorSource: factor?.sourceReference || 'EPA GHG Hub / DEFRA',
+    calculatedAt: new Date().toISOString()
+  });
+
+  const createdItem = {
+    id: travelId,
+    organizationId: orgId,
+    userId,
+    userFullName,
+    title: title || `${travelMode} Trip: ${originAddress.split(',')[0]} → ${destinationAddress.split(',')[0]}`,
+    travelDate,
+    tripType,
+    travelMode,
+    vehicleType,
+    originAddress,
+    destinationAddress,
+    waypointsJson: waypoints.length > 0 ? JSON.stringify(waypoints) : null,
+    passengerCount: passengers,
+    oneWayDistanceKm: oneWayKm,
+    totalDistanceKm: finalTotalKm,
+    durationSeconds,
+    routingProvider,
+    routingService: 'OSRM_ROUTING_V1',
+    routeCalculatedAt: new Date().toISOString(),
+    routeSummary: routeSummary || `${routingProvider} ${travelMode} Route (${oneWayKm} km)`,
+    emissionFactorId: factor?.id || 'ef-travel-001',
+    emissionFactorValue: factorValue,
+    calculatedEmissions,
+    carbonDataId,
+    status,
+    notes,
+    provenanceMetadata,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  };
+
+  serverTravelActivities.unshift(createdItem);
+  return res.status(201).json(createdItem);
+});
+
+// 6.6 Get Single Travel Activity by ID
+app.get('/api/travel/:id', (req, res) => {
+  const { id } = req.params;
+  const orgId = 'org-demo-001';
+  const found = serverTravelActivities.find(t => t.id === id && t.organizationId === orgId);
+  if (!found) {
+    return res.status(404).json({ error: 'Travel activity not found or access denied.' });
+  }
+  return res.json(found);
+});
+
+// 6.7 Formally Calculate Emissions & Sync with Carbon Data Ledger
+app.post('/api/travel/:id/calculate', (req, res) => {
+  const { id } = req.params;
+  const orgId = 'org-demo-001';
+  const idx = serverTravelActivities.findIndex(t => t.id === id && t.organizationId === orgId);
+  if (idx === -1) {
+    return res.status(404).json({ error: 'Travel activity not found.' });
+  }
+
+  const travel = serverTravelActivities[idx];
+  const factor = serverEmissionFactors.find(f => f.id === travel.emissionFactorId) || serverEmissionFactors[8];
+  const factorValue = travel.emissionFactorValue || factor.factorValue;
+  const activityAmountPassengerKm = parseFloat((travel.totalDistanceKm * travel.passengerCount).toFixed(3));
+  const calculatedEmissions = parseFloat((activityAmountPassengerKm * factorValue).toFixed(4));
+
+  const reportingPeriod = `${new Date(travel.travelDate).getFullYear()}-Q${Math.floor(new Date(travel.travelDate).getMonth() / 3) + 1}`;
+  const carbonRecordId = travel.carbonDataId || `carb-${Date.now()}`;
+
+  if (!travel.carbonDataId) {
+    serverCarbonRecords.unshift({
+      id: carbonRecordId,
+      organizationId: orgId,
+      reportingPeriod,
+      scope: 'SCOPE_3',
+      category: 'Business Travel',
+      activityType: travel.vehicleType || 'Business Travel',
+      activityAmount: activityAmountPassengerKm,
+      unit: 'passenger-km',
+      emissionFactor: factorValue,
+      calculatedEmissions,
+      source: `OpenFreeMap & OSRM Engine (${travel.originAddress} → ${travel.destinationAddress})`,
+      dataOwner: travel.userFullName || 'Operations',
+      status: 'VALIDATED',
+      notes: `Linked from Travel Activity ${travel.id}. Distance: ${travel.totalDistanceKm} km, ${travel.passengerCount} passengers.`,
+      createdAt: new Date().toISOString()
+    });
+  }
+
+  serverTravelActivities[idx] = {
+    ...travel,
+    calculatedEmissions,
+    carbonDataId: carbonRecordId,
+    status: 'CALCULATED',
+    updatedAt: new Date().toISOString()
+  };
+
+  return res.json(serverTravelActivities[idx]);
+});
+
+// 6.8 Delete Travel Activity
+app.delete('/api/travel/:id', (req, res) => {
+  const { id } = req.params;
+  const orgId = 'org-demo-001';
+  serverTravelActivities = serverTravelActivities.filter(t => !(t.id === id && t.organizationId === orgId));
+  return res.json({ success: true });
 });
 
 // 7. Backup Status
@@ -608,58 +1052,235 @@ app.get('/api/backup/status', (_req, res) => {
   });
 });
 
+// Helper domain fallback generator when external AI API encounters temporary upstream 503 spikes
+function generateDomainFallback(lastUserText: string, _personaPrompt?: string): string {
+  const query = (lastUserText || '').toLowerCase();
+
+  if (query.includes('evidence') || query.includes('iso 14064') || query.includes('audit')) {
+    return `### ISO 14064-3 Audit Trail & Evidence Verification
+
+Under **ISO 14064-3** (*Specification with guidance for the verification and validation of greenhouse gas statements*), external verifiers require a continuous audit trail:
+
+1. **Primary Activity Documentation:**
+   - Utility invoices or metered telemetry for stationary fuel (e.g., natural gas therms/MWh).
+   - Calibrated utility meters with custody-transfer records.
+   - Verified batch calorific values and fuel delivery manifests.
+
+2. **Emission Factor Traceability:**
+   - Explicit factor publisher documentation (e.g., EPA GHG Factors Hub v2024, DEFRA, eGRID subregion).
+   - Documented 100-year Global Warming Potentials (GWPs) specified (IPCC AR5 or AR6).
+
+3. **Data Quality & Control Rigor:**
+   - Materiality threshold evaluation (standard 5% for limited assurance, 2% for reasonable assurance).
+   - Immutable audit trail provenance hash (SHA-256) recorded in CarbonFlow.`;
+  }
+
+  if (query.includes('travel') || query.includes('passenger') || query.includes('flight') || query.includes('road') || query.includes('car') || query.includes('rail')) {
+    return `### Scope 3 Category 6: Business Travel Calculation Framework
+
+According to the **GHG Protocol Technical Guidance for Calculating Scope 3 Emissions (Category 6)**:
+
+1. **Distance-Based Method (Standard of Truth):**
+   $$\\text{Emissions (tCO}_2\\text{e)} = \\frac{\\text{Activity Distance (km)} \\times \\text{Emission Factor (kg CO}_2\\text{e/km)} \\times \\text{Passenger Count}}{1,000}$$
+
+2. **Verified Published Emission Factors (DEFRA / EPA):**
+   - **Passenger Car (Gasoline / ICE):** $0.1702\\text{ kg CO}_2\\text{e/km}$
+   - **Electric Vehicle (EV):** $0.0530\\text{ kg CO}_2\\text{e/km}$ (Grid average basis)
+   - **National Rail / Train:** $0.0355\\text{ kg CO}_2\\text{e/passenger-km}$
+   - **Domestic Aviation (< 500 km):** $0.2460\\text{ kg CO}_2\\text{e/passenger-km}$ (including radiative forcing uplift)
+
+3. **CarbonFlow Verification Trail:**
+   - Origin and destination coordinates geocoded via OpenStreetMap Nominatim.
+   - Road distance verified via OSRM engine and displayed on OpenFreeMap tiles.
+   - Calculation recorded with immutable audit metadata in the carbon ledger.`;
+  }
+
+  if (query.includes('csrd') || query.includes('scope 3') || query.includes('esrs') || query.includes('sec')) {
+    return `### Regulatory Compliance Overview: CSRD ESRS E1 & SEC Climate Disclosures
+
+1. **EU CSRD (ESRS E1 Climate Change):**
+   - **Scope 1 & Scope 2:** Mandatory gross reporting (dual reporting: location-based and market-based Scope 2).
+   - **Scope 3 Value Chain:** Mandatory across material categories (Category 1 Purchased Goods, Category 4 Upstream Freight, Category 6 Business Travel).
+   - **Assurance Timeline:** Limited assurance required at initial filing, transitioning to reasonable assurance.
+
+2. **SEC Climate Disclosure Framework:**
+   - Large Accelerated Filers (LAFs) must disclose material Scope 1 and Scope 2 emissions with attestation reports.
+   - Clear disclosure of climate-related governance, risks, and greenhouse gas targets.
+
+3. **CarbonFlow Audit Readiness:**
+   - Immutable evidence records and cryptographic data hashes.
+   - Role-based separation of duties between preparers, reviewers, and assurance providers.`;
+  }
+
+  if (query.includes('calculate') || query.includes('therm') || query.includes('kwh') || query.includes('formula')) {
+    return `### Greenhouse Gas Calculation Methodology
+
+The fundamental equation for activity-based emissions calculation is:
+
+$$\\text{Total Emissions (tCO}_2\\text{e)} = \\frac{\\text{Activity Data} \\times \\text{Emission Factor}}{1,000}$$
+
+#### Benchmark Examples:
+- **Natural Gas (Stationary Combustion):**
+  $18,450\\text{ therms} \\times 0.0053\\text{ tCO}_2\\text{e/therm} = 97.785\\text{ tCO}_2\\text{e}$
+- **Purchased Electricity (Scope 2):**
+  $\\text{Activity (MWh)} \\times \\text{eGRID factor (kg CO}_2\\text{e/MWh)} \\div 1,000$
+
+All calculations are linked directly to source factors and persisted in the CarbonFlow ledger.`;
+  }
+
+  return `### CarbonFlow Enterprise AI Sustainability & Audit Assistant
+
+Hello! I am your enterprise sustainability and GHG audit assistant.
+
+- **GHG Protocol Standards:** Strict alignment with the GHG Protocol Corporate Accounting Standard and Scope 3 Value Chain Standard.
+- **Traceable Ledger:** Every activity recorded in CarbonFlow generates an immutable audit record with timestamp, user ID, calculation formula, and source factor provenance.
+- **Assurance Readiness:** Formatted for third-party verifiers following ISO 14064-3 and EU CSRD (ESRS E1) requirements.
+
+How can I assist your organization with emissions calculations, travel mobility verification, or audit compliance today?`;
+}
+
 // 8. Gemini Multi-turn Chatbot Endpoint
+const SUPPORTED_GEMINI_MODELS = [
+  'gemini-3.1-flash-lite',
+  'gemini-3.8-flash',
+  'gemini-3.1-pro-preview',
+  'gemini-flash-latest'
+] as const;
+
+// Health & info endpoint for /api/gemini/chat
+app.get('/api/gemini/chat', (_req, res) => {
+  const hasKey = Boolean(process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.trim());
+  return res.json({
+    status: 'online',
+    endpoint: '/api/gemini/chat',
+    method: 'POST',
+    supportedModels: SUPPORTED_GEMINI_MODELS,
+    credentialsConfigured: hasKey
+  });
+});
+
 app.post('/api/gemini/chat', async (req, res) => {
   try {
-    const { model = 'gemini-3.5-flash', messages = [], systemInstruction } = req.body;
+    const { model = 'gemini-3.1-flash-lite', messages = [], systemInstruction } = req.body || {};
 
+    // 1. Validate request messages payload
     if (!messages || !Array.isArray(messages) || messages.length === 0) {
-      return res.status(400).json({ error: 'Messages array is required' });
+      return res.status(400).json({
+        error: 'Invalid request: "messages" must be a non-empty array of chat messages.',
+        code: 'INVALID_MESSAGES'
+      });
     }
 
-    const validModels = ['gemini-3.5-flash', 'gemini-3.1-flash-lite', 'gemini-3.1-pro-preview'];
-    const selectedModel = validModels.includes(model) ? model : 'gemini-3.5-flash';
+    // 2. Validate model identifier against models supported by configured Gemini API
+    if (model && !SUPPORTED_GEMINI_MODELS.includes(model as any)) {
+      return res.status(400).json({
+        error: `Unsupported Gemini model: '${model}'. Supported models are: ${SUPPORTED_GEMINI_MODELS.join(', ')}`,
+        code: 'INVALID_MODEL',
+        supportedModels: SUPPORTED_GEMINI_MODELS
+      });
+    }
+
+    // Map model alias to standard supported model
+    const selectedModel = model === 'gemini-flash-latest' ? 'gemini-3.8-flash' : model;
+
+    // 3. Validate credentials availability on server
+    const currentApiKey = process.env.GEMINI_API_KEY || '';
+    if (!currentApiKey || !currentApiKey.trim()) {
+      return res.status(401).json({
+        error: 'Missing Gemini API credentials. The server requires GEMINI_API_KEY environment variable to be configured.',
+        code: 'MISSING_CREDENTIALS'
+      });
+    }
+
+    const ai = getGeminiClient();
+    if (!ai) {
+      return res.status(401).json({
+        error: 'Failed to initialize Gemini API client with provided credentials.',
+        code: 'CLIENT_INIT_FAILED'
+      });
+    }
 
     const contents = messages.map((m: any) => ({
       role: m.role === 'model' || m.role === 'assistant' ? 'model' : 'user',
       parts: [{ text: String(m.text || m.content || '') }]
     }));
 
+    const lastUserMsg = [...messages].reverse().find((m: any) => m.role === 'user')?.text || '';
+
+    const effectiveInstruction = systemInstruction ||
+      'You are the CarbonFlow Enterprise AI Sustainability & Audit Assistant. You provide expert guidance on greenhouse gas (GHG) accounting (Scopes 1, 2, and 3), emissions calculation methodologies, ISO 14064-3 and CSRD compliance, audit trails, and travel activity distance verification. Keep your answers clear, authoritative, and actionable.';
+
+    // Primary attempt with selected model
     try {
       const response = await ai.models.generateContent({
         model: selectedModel,
         contents,
         config: {
-          systemInstruction: systemInstruction || 'You are the CarbonFlow Enterprise AI Sustainability & Audit Assistant. You provide expert guidance on greenhouse gas (GHG) accounting (Scopes 1, 2, and 3), emissions calculation methodologies, ISO 14064-3 and CSRD compliance, audit trails, and travel activity distance verification. Keep your answers clear, authoritative, and actionable.'
+          systemInstruction: effectiveInstruction
         }
       });
 
       const reply = response.text || 'I analyzed the inquiry, but no textual response was generated.';
       return res.json({ reply, model: selectedModel });
-    } catch (modelErr: any) {
-      if (selectedModel === 'gemini-3.1-pro-preview') {
-        console.warn('gemini-3.1-pro-preview unavailable or quota exhausted; falling back to gemini-3.5-flash');
+    } catch (primaryErr: any) {
+      const status = primaryErr?.status || primaryErr?.statusCode || primaryErr?.code;
+      const errMsg = String(primaryErr?.message || primaryErr || '');
+
+      console.warn(`Gemini API call with ${selectedModel} failed (${status || 'unknown'}: ${errMsg})`);
+
+      // Quota / rate limit exceeded (HTTP 429)
+      if (status === 429 || errMsg.includes('RESOURCE_EXHAUSTED') || errMsg.includes('quota') || errMsg.includes('rate limit')) {
+        return res.status(429).json({
+          error: 'Gemini API rate limit or quota exceeded. Please wait a moment or upgrade your tier.',
+          code: 'QUOTA_EXCEEDED',
+          details: errMsg
+        });
+      }
+
+      // Invalid credentials (HTTP 401/403)
+      if (status === 403 || errMsg.includes('API_KEY_INVALID') || errMsg.includes('key not valid') || errMsg.includes('API key expired')) {
+        return res.status(401).json({
+          error: 'Invalid or unauthorized Gemini API credentials.',
+          code: 'INVALID_CREDENTIALS',
+          details: errMsg
+        });
+      }
+
+      // If temporary 503 high demand on primary model and not flash-lite, attempt automatic failover
+      if (selectedModel !== 'gemini-3.1-flash-lite') {
         try {
+          console.log(`Attempting failover to gemini-3.1-flash-lite...`);
           const fallbackResponse = await ai.models.generateContent({
-            model: 'gemini-3.5-flash',
+            model: 'gemini-3.1-flash-lite',
             contents,
             config: {
-              systemInstruction: systemInstruction || 'You are the CarbonFlow Enterprise AI Sustainability & Audit Assistant. Keep your answers clear, authoritative, and actionable.'
+              systemInstruction: effectiveInstruction
             }
           });
-          const reply = `*(Notice: Processed via gemini-3.5-flash due to Pro tier availability/quota)*\n\n${fallbackResponse.text || ''}`;
-          return res.json({ reply, model: 'gemini-3.5-flash' });
-        } catch (fbErr) {
-          throw modelErr;
+
+          const reply = fallbackResponse.text || 'Response generated via Gemini 3.1 Flash Lite.';
+          return res.json({
+            reply: `*(Auto-routed via gemini-3.1-flash-lite due to ${selectedModel} demand/tier)*\n\n${reply}`,
+            model: 'gemini-3.1-flash-lite'
+          });
+        } catch (secondaryErr: any) {
+          console.warn('Fallback to gemini-3.1-flash-lite also failed:', secondaryErr?.message);
         }
       }
-      throw modelErr;
+
+      // Upstream service failure
+      const httpCode = (status === 503 || errMsg.includes('UNAVAILABLE') || errMsg.includes('high demand')) ? 503 : 502;
+      return res.status(httpCode).json({
+        error: `Gemini API upstream error: ${errMsg || 'Service temporarily unavailable'}`,
+        code: 'UPSTREAM_FAILURE',
+        details: errMsg
+      });
     }
   } catch (error: any) {
-    console.error('Gemini API chat error:', error);
+    console.error('Unhandled Gemini endpoint error:', error);
     return res.status(500).json({
       error: error?.message || 'Failed to process chat query with Gemini API',
-      details: String(error)
+      code: 'INTERNAL_ERROR'
     });
   }
 });
@@ -677,12 +1298,18 @@ app.get(['/maplibre-gl-worker.mjs', '/node_modules/.vite/deps/maplibre-gl-worker
 
 // Mount Vite middleware in dev or static files in production
 async function startServer() {
-  if (process.env.NODE_ENV === 'production') {
-    app.use(express.static(path.join(__dirname, 'dist')));
+  const distDir = path.join(__dirname, 'dist');
+  const distExists = fs.existsSync(path.join(distDir, 'index.html'));
+  const isProduction = process.env.NODE_ENV === 'production' || (distExists && process.env.NODE_ENV !== 'development');
+
+  if (isProduction) {
+    console.log(`Starting in PRODUCTION mode, serving static assets from ${distDir}`);
+    app.use(express.static(distDir));
     app.get('*', (_req, res) => {
-      res.sendFile(path.join(__dirname, 'dist', 'index.html'));
+      res.sendFile(path.join(distDir, 'index.html'));
     });
   } else {
+    console.log(`Starting in DEVELOPMENT mode with Vite middleware`);
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: 'spa',
@@ -690,8 +1317,8 @@ async function startServer() {
     app.use(vite.middlewares);
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`CarbonFlow dev server running on port ${PORT}`);
+  app.listen(PORT, HOST, () => {
+    console.log(`CarbonFlow server running on http://${HOST}:${PORT} (PID ${process.pid})`);
   });
 }
 

@@ -343,7 +343,7 @@ export interface CreateTravelActivityRequest {
   autoCalculateCarbon: boolean;
 }
 
-export type GeminiModelType = 'gemini-3.5-flash' | 'gemini-3.1-flash-lite' | 'gemini-3.1-pro-preview';
+export type GeminiModelType = 'gemini-3.1-flash-lite' | 'gemini-3.8-flash' | 'gemini-3.1-pro-preview';
 
 export interface ChatMessage {
   id: string;

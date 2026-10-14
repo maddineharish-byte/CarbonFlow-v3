@@ -35,6 +35,18 @@ management:
       exposure:
         include: health,info
 
+routing:
+  provider: ${ROUTING_PROVIDER:osrm}
+  osrm:
+    endpoint: ${OSRM_ENDPOINT:https://router.project-osrm.org}
+    connect-timeout-ms: 5000
+    read-timeout-ms: 10000
+
+maps:
+  tile-provider: ${MAP_TILE_PROVIDER:openfreemap}
+  openfreemap:
+    default-style: https://tiles.openfreemap.org/styles/liberty
+
 google:
   maps:
     api-key: ${GOOGLE_MAPS_API_KEY:${VITE_GOOGLE_MAPS_API_KEY:}}

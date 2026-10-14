@@ -55,10 +55,31 @@ public record TravelActivityDto(
         String formattedDuration,
         String routeSummary,
         String encodedPolyline,
+        List<List<Double>> coordinates,
         String routingProvider,
         String routingService,
         LocalDateTime calculatedAt
-    ) {}
+    ) {
+        public RoutePreviewResponse(
+            String origin,
+            String destination,
+            TravelMode travelMode,
+            TripType tripType,
+            long oneWayDistanceMeters,
+            double oneWayDistanceKm,
+            double totalDistanceKm,
+            int durationSeconds,
+            String formattedDuration,
+            String routeSummary,
+            String encodedPolyline,
+            String routingProvider,
+            String routingService,
+            LocalDateTime calculatedAt
+        ) {
+            this(origin, destination, travelMode, tripType, oneWayDistanceMeters, oneWayDistanceKm, totalDistanceKm,
+                 durationSeconds, formattedDuration, routeSummary, encodedPolyline, List.of(), routingProvider, routingService, calculatedAt);
+        }
+    }
 
     public record CreateTravelRequest(
         String title,

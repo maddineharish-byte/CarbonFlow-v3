@@ -58,10 +58,23 @@ public class GoogleMapsRoutingService {
         int durationSeconds,
         String routeSummary,
         String encodedPolyline,
+        List<List<Double>> coordinates,
         String routingProvider,
         String routingService,
         LocalDateTime calculatedAt
-    ) {}
+    ) {
+        public RouteResult(
+            long distanceMeters,
+            int durationSeconds,
+            String routeSummary,
+            String encodedPolyline,
+            String routingProvider,
+            String routingService,
+            LocalDateTime calculatedAt
+        ) {
+            this(distanceMeters, durationSeconds, routeSummary, encodedPolyline, List.of(), routingProvider, routingService, calculatedAt);
+        }
+    }
 
     /**
      * Compute route distance and duration using Google Maps Routes API v2.
