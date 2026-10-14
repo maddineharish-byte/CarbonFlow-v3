@@ -28,11 +28,19 @@ import {
   fsSaveTravelActivity,
   fsDeleteTravelActivity,
   fsGetCarbonRecords,
-  fsGetTravelActivities
+  fsGetTravelActivities,
+  auth,
+  firebaseSignOut
 } from './firebase';
 
 const TOKEN_KEY = 'carbonflow_jwt_token';
 const USER_KEY = 'carbonflow_user';
+
+export const BACKEND_BASE_URL = (
+  import.meta.env.VITE_BACKEND_URL ||
+  import.meta.env.VITE_API_BASE_URL ||
+  ''
+).replace(/\/+$/, '');
 
 export function getStoredToken(): string | null {
   return localStorage.getItem(TOKEN_KEY);
@@ -45,6 +53,59 @@ export function setStoredToken(token: string) {
 export function clearStoredToken() {
   localStorage.removeItem(TOKEN_KEY);
   localStorage.removeItem(USER_KEY);
+}
+
+export async function getFreshAuthToken(): Promise<string | null> {
+  if (typeof window !== 'undefined' && auth && auth.currentUser) {
+    try {
+      const fresh = await auth.currentUser.getIdToken(false);
+      setStoredToken(fresh);
+      return fresh;
+    } catch (err) {
+      console.warn('Could not refresh Firebase ID token:', err);
+    }
+  }
+  return getStoredToken();
+}
+
+let isRedirectingToSignIn = false;
+
+/**
+ * Global API 401 Unauthorized error handler.
+ * Automatically clears credentials, signs out of Firebase, notifies React AuthContext,
+ * and redirects the user to the /sign-in page with an expired session indicator.
+ */
+export function handleGlobalUnauthorized(endpoint?: string) {
+  if (typeof window === 'undefined') return;
+
+  // Prevent duplicate redirect loops when multiple parallel requests 401 simultaneously
+  if (isRedirectingToSignIn) return;
+  isRedirectingToSignIn = true;
+  setTimeout(() => {
+    isRedirectingToSignIn = false;
+  }, 2000);
+
+  console.warn(`[CarbonFlow Auth] 401 Unauthorized encountered on ${endpoint || 'API request'}. Redirecting to /sign-in.`);
+
+  // 1. Clear local authentication tokens and cached user profiles
+  clearStoredToken();
+
+  // 2. Sign out of Firebase session if active
+  try {
+    firebaseSignOut().catch(() => {});
+  } catch {}
+
+  // 3. Dispatch global custom event for React components and AuthProvider
+  window.dispatchEvent(new CustomEvent('carbonflow:session-expired', {
+    detail: { endpoint, timestamp: new Date().toISOString() }
+  }));
+
+  // 4. Redirect to /sign-in if the user is currently on a protected route or anywhere other than public auth pages
+  const currentPath = window.location.pathname || '/';
+  if (currentPath !== '/sign-in' && currentPath !== '/get-started') {
+    window.history.pushState({ sessionExpired: true }, '', '/sign-in?expired=true');
+    window.dispatchEvent(new PopStateEvent('popstate'));
+  }
 }
 
 // Initial mock dataset for graceful fallback or instant client-side testing
@@ -417,9 +478,9 @@ let localTravelActivities: TravelActivityItem[] = [
 ];
 
 
-// Helper to make network requests with fallback
+// Helper to make network requests with fallback, backend routing, dynamic fresh token resolution, and global 401 error handling
 async function apiFetch<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
-  const token = getStoredToken();
+  const token = await getFreshAuthToken();
   const headers = new Headers(options.headers || {});
   if (token) {
     headers.set('Authorization', `Bearer ${token}`);
@@ -428,13 +489,41 @@ async function apiFetch<T>(endpoint: string, options: RequestInit = {}): Promise
     headers.set('Content-Type', 'application/json');
   }
 
+  // Prepend BACKEND_BASE_URL if configured and endpoint is a backend API route
+  // Keep /api/gemini/chat relative so Netlify Serverless Functions intercept it first
+  let targetUrl = endpoint;
+  if (BACKEND_BASE_URL && endpoint.startsWith('/api') && !endpoint.startsWith('/api/gemini')) {
+    targetUrl = `${BACKEND_BASE_URL}${endpoint}`;
+  }
+
+  const isAuthSubmission = endpoint.includes('/api/auth/login') || endpoint.includes('/api/auth/register');
   let errorDetail = '';
+
   try {
-    const res = await fetch(endpoint, { ...options, headers });
+    let res = await fetch(targetUrl, { ...options, headers });
+
+    // Handle token expiration: attempt automatic force refresh once for authenticated requests
+    if (res.status === 401 && !isAuthSubmission && auth && auth.currentUser) {
+      try {
+        const refreshedToken = await auth.currentUser.getIdToken(true);
+        setStoredToken(refreshedToken);
+        headers.set('Authorization', `Bearer ${refreshedToken}`);
+        res = await fetch(targetUrl, { ...options, headers });
+      } catch (refreshErr) {
+        console.warn('Failed to force refresh Firebase token:', refreshErr);
+      }
+    }
+
     if (res.ok) {
       const json = await res.json();
       return json.data !== undefined ? json.data : json;
     }
+
+    // If still 401 on protected endpoint, engage global unauthorized handler
+    if (res.status === 401 && !isAuthSubmission) {
+      handleGlobalUnauthorized(endpoint);
+    }
+
     try {
       const errJson = await res.json();
       errorDetail = errJson.error || errJson.message || `HTTP ${res.status}`;
@@ -442,8 +531,28 @@ async function apiFetch<T>(endpoint: string, options: RequestInit = {}): Promise
       errorDetail = `HTTP ${res.status}`;
     }
   } catch (err: any) {
+    // If targetUrl failed (e.g. backend CORS/downtime), try relative endpoint fallback
+    if (targetUrl !== endpoint) {
+      try {
+        const fallbackRes = await fetch(endpoint, { ...options, headers });
+
+        if (fallbackRes.ok) {
+          const json = await fallbackRes.json();
+          return json.data !== undefined ? json.data : json;
+        }
+
+        if (fallbackRes.status === 401 && !isAuthSubmission) {
+          handleGlobalUnauthorized(endpoint);
+        }
+      } catch {}
+    }
+
     errorDetail = err?.message || 'Network request failed';
+    if (!isAuthSubmission && (errorDetail.includes('401') || errorDetail.includes('UNAUTHORIZED') || errorDetail.includes('Unauthorized'))) {
+      handleGlobalUnauthorized(endpoint);
+    }
   }
+
   throw new Error(`API fetch error on ${endpoint}${errorDetail ? `: ${errorDetail}` : ''}`);
 }
 

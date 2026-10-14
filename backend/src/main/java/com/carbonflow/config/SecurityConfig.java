@@ -65,6 +65,14 @@ public class SecurityConfig {
                 .collect(Collectors.toList());
 
         configuration.setAllowedOrigins(origins);
+        // Support dynamic preview domains on Netlify and cloud containers
+        configuration.setAllowedOriginPatterns(List.of(
+                "https://*.netlify.app",
+                "https://*.onrender.com",
+                "https://*.run.app",
+                "http://localhost:*",
+                "http://127.0.0.1:*"
+        ));
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"));
         configuration.setAllowedHeaders(List.of(
                 "Authorization",
@@ -86,7 +94,7 @@ public class SecurityConfig {
 
     /**
      * Security filter chain defining HTTP authorization rules, stateless session management,
-     * and JWT authentication filter injection.
+     * and JWT / Firebase authentication filter injection.
      */
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
@@ -123,14 +131,22 @@ public class SecurityConfig {
                 // Allow browser preflight OPTIONS requests
                 .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                 
+                // Public root, health check, and diagnostic endpoints
+                .requestMatchers("/", "/health", "/api/health", "/api/health/**", "/actuator/**", "/error").permitAll()
+                
                 // Public authentication and onboarding endpoints
                 .requestMatchers("/api/auth/**").permitAll()
-                .requestMatchers("/api/health").permitAll()
                 .requestMatchers("/api/public/**").permitAll()
-                .requestMatchers("/actuator/**").permitAll()
-                .requestMatchers("/error").permitAll()
                 
-                // All other business and compliance endpoints require valid JWT authentication
+                // Public maps, emission factors, and geocoding services
+                .requestMatchers("/api/maps/**").permitAll()
+                .requestMatchers("/api/carbon-data/emission-factors").permitAll()
+                .requestMatchers("/api/travel/route", "/api/travel/geocode", "/api/travel/reverse-geocode").permitAll()
+                
+                // Public AI Assistant Chatbot endpoint
+                .requestMatchers("/api/gemini/**").permitAll()
+                
+                // All other enterprise business, audit, and compliance endpoints require valid JWT / Firebase token
                 .requestMatchers("/api/**").authenticated()
                 .anyRequest().authenticated()
             )

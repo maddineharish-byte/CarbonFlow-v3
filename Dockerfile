@@ -27,8 +27,9 @@ RUN mvn clean package -DskipTests -B
 # ------------------------------------------------------------------------------
 FROM eclipse-temurin:21-jre-jammy AS runner
 
-# Create non-root dedicated system user and group
-RUN groupadd -g 10001 spring && \
+# Install curl for container healthcheck and create non-root dedicated system user and group
+RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/* && \
+    groupadd -g 10001 spring && \
     useradd -u 10001 -g spring -s /bin/false -m spring
 
 WORKDIR /app

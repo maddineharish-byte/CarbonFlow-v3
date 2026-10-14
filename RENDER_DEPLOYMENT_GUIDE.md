@@ -63,12 +63,16 @@ In the Render dashboard under **Environment Variables** (or via an Environment G
 | `SPRING_DATASOURCE_USERNAME` | **Yes** | `postgres.[YOUR-SUPABASE-PROJECT-REF]` | Supabase database user. |
 | `SPRING_DATASOURCE_PASSWORD` | **Yes** | `[YOUR-SUPABASE-DB-PASSWORD]` | Supabase database password. |
 | `SPRING_DATASOURCE_DRIVER` | **Yes** | `org.postgresql.Driver` | PostgreSQL JDBC driver (included in `pom.xml`). |
-| `JWT_SECRET` | **Yes** | `[SECURE-RANDOM-BASE64-OR-64-CHAR-STRING]` | 256-bit minimum key for signing JWT auth tokens. |
+| `FIREBASE_PROJECT_ID` | **Yes** | `auspicious-compass-tcb1c` | Firebase Project ID for Google Sign-In cryptographic token verification. |
+| `FIRESTORE_DATABASE_ID` | **Yes** | `ai-studio-carbonflowcarbon-7dfa5a2a-c56a-4dd5-b7d2-6ec22f692f8d` | Target Cloud Firestore database identifier. |
+| `FIREBASE_CREDENTIALS_JSON` | No | `{"type":"service_account",...}` | Optional service account key JSON for server-side Firebase Admin SDK Firestore access. |
+| `JWT_SECRET` | **Yes** | `[SECURE-RANDOM-BASE64-OR-64-CHAR-STRING]` | 256-bit minimum key for signing legacy/internal JWT tokens. |
 | `CORS_ALLOWED_ORIGINS` | **Yes** | `https://your-site.netlify.app,http://localhost:3000` | Comma-separated list of permitted web origins. |
+| `GEMINI_API_KEY` | No | `AIzaSy...` | Optional API key to enable live Gemini AI models directly on Render. |
 | `PORT` | Auto | *Assigned dynamically by Render (e.g. 10000)* | Spring Boot reads `${PORT:${BACKEND_PORT:8080}}` automatically. |
 | `JAVA_OPTS` | No | `-XX:MaxRAMPercentage=75.0 -XX:+UseG1GC` | Configured inside Dockerfile; tune if using Free tier. |
-| `MAP_TILE_PROVIDER` | No | `openstreetmap` | Map engine for carbon logistics view (`openstreetmap` or `google`). |
-| `ROUTING_PROVIDER` | No | `osrm` | Logistics routing calculation engine (`osrm` or `google`). |
+| `MAP_TILE_PROVIDER` | No | `openfreemap` | Map engine for carbon logistics view (`openfreemap`). |
+| `ROUTING_PROVIDER` | No | `osrm` | Logistics routing calculation engine (`osrm`). |
 
 > **Important Security Note**: Never commit actual Supabase passwords or JWT secrets to Git. Enter them exclusively in Render's encrypted environment variables UI.
 
@@ -76,13 +80,13 @@ In the Render dashboard under **Environment Variables** (or via an Environment G
 
 ## 5. Connecting Netlify Frontend to Render Backend
 
-You have two clean options to connect your Netlify frontend to the Render Java backend:
+Your confirmed backend deployment URL is: **`https://carbonflow-v3.onrender.com`**
 
-### Option A: Netlify Transparent Rewrite Proxy (Recommended — Zero CORS Issues)
-In your existing `netlify.toml` file at the root of the project, add a redirect rule for `/api/*` below the Gemini chat function:
+### Option A: Netlify Transparent Rewrite Proxy (Pre-configured in `netlify.toml`)
+In your root `netlify.toml`, `/api/gemini/chat` is handled by the serverless function, and all other `/api/*` calls are proxied directly to Render:
 
 ```toml
-# 1. Gemini AI Netlify Serverless Function (already configured)
+# 1. Gemini AI Netlify Serverless Function
 [[redirects]]
   from = "/api/gemini/chat"
   to = "/.netlify/functions/gemini-chat"
@@ -92,22 +96,31 @@ In your existing `netlify.toml` file at the root of the project, add a redirect 
 # 2. Proxy all other /api/* requests to your Render Java backend
 [[redirects]]
   from = "/api/*"
-  to = "https://carbonflow-backend.onrender.com/api/:splat"
+  to = "https://carbonflow-v3.onrender.com/api/:splat"
   status = 200
   force = true
 
-# 3. SPA Client-Side Fallback (already configured)
+# 3. Single Page Application (SPA) client-side routing fallback
 [[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200
 ```
-*Replace `https://carbonflow-backend.onrender.com` with your real Render service URL.*
 
-### Option B: Direct Origin with CORS
-1. Set the Netlify environment variable:
-   `VITE_API_URL=https://carbonflow-backend.onrender.com`
-2. In Render, set:
+### Option B: Frontend Environment Variable
+In your Netlify Site configuration, you can also set:
+- **`VITE_BACKEND_URL`**: `https://carbonflow-v3.onrender.com`
+- **`GEMINI_API_KEY`**: *(Your Google Gemini API Key)*
+
+---
+
+## 6. Firebase Console Authorized Domains
+
+To ensure Google Sign-In works seamlessly from Netlify:
+1. Open the [Firebase Console](https://console.firebase.google.com/project/auspicious-compass-tcb1c/authentication/settings).
+2. Go to **Authentication > Settings > Authorized domains**.
+3. Add your deployed Netlify domain (e.g., `your-carbonflow-app.netlify.app`).
+4. Keep the default authorized domains (`localhost`, `127.0.0.1`, `ais-dev-*.run.app`).
    `CORS_ALLOWED_ORIGINS=https://your-custom-domain.netlify.app,https://carbonflow-audit.netlify.app`
 
 ---

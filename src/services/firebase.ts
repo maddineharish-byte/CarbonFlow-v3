@@ -32,7 +32,8 @@ import {
   CarbonRecord,
   TravelActivityItem,
   EvidenceItem,
-  AuditItem
+  AuditItem,
+  UserRole
 } from '../types';
 
 // Silence verbose internal Firestore logs (such as 10s backend connection timeouts in iframe/sandboxed environments)
@@ -145,16 +146,62 @@ export async function signInWithGoogle(): Promise<{
     const cred = await signInWithPopup(auth, googleAuthProvider);
     const fbUser = cred.user;
 
-    const orgId = 'org-demo-001';
+    let orgId = 'org-demo-001';
+    let role: UserRole = 'SUSTAINABILITY_MANAGER';
+    let title = 'Sustainability Officer';
+    let userFullName = fbUser.displayName || (fbUser.email ? fbUser.email.split('@')[0] : 'Google User');
+    let createdAt = new Date().toISOString();
+
+    // Check if user already exists in Firestore to avoid duplicate organizations or overwriting roles
+    try {
+      const userRef = doc(db, 'users', fbUser.uid);
+      const userSnap = await getDoc(userRef);
+
+      if (userSnap.exists()) {
+        const data = userSnap.data();
+        if (data.organizationId) orgId = data.organizationId;
+        if (data.role) role = data.role as UserRole;
+        if (data.title) title = data.title;
+        if (data.fullName) userFullName = data.fullName;
+        if (data.createdAt) createdAt = data.createdAt;
+
+        // Update last seen timestamp without changing role or org
+        await setDoc(userRef, {
+          email: fbUser.email,
+          fullName: userFullName,
+          updatedAt: new Date().toISOString()
+        }, { merge: true });
+      } else {
+        // New user provisioning
+        if (fbUser.email?.toLowerCase() === 'maddineharish@gmail.com' || fbUser.email?.toLowerCase().startsWith('admin@')) {
+          role = 'COMPANY_ADMIN';
+          title = 'Chief Sustainability Officer';
+        }
+
+        await setDoc(userRef, {
+          id: fbUser.uid,
+          email: fbUser.email,
+          fullName: userFullName,
+          role,
+          organizationId: orgId,
+          title,
+          createdAt,
+          updatedAt: createdAt
+        });
+      }
+    } catch (err) {
+      console.warn('Firestore user profile sync notice (continuing with session):', err);
+    }
+
     const appUser: User = {
       id: fbUser.uid,
       email: fbUser.email || 'user@carbonflow.io',
-      fullName: fbUser.displayName || 'Google User',
-      title: 'Sustainability Officer',
-      role: fbUser.email === 'maddineharish@gmail.com' ? 'COMPANY_ADMIN' : 'SUSTAINABILITY_MANAGER',
+      fullName: userFullName,
+      title,
+      role,
       status: 'ACTIVE',
       active: true,
-      createdAt: new Date().toISOString()
+      createdAt
     };
 
     const org: Organization = {
@@ -167,24 +214,11 @@ export async function signInWithGoogle(): Promise<{
       reportingPeriod: '2025'
     };
 
-    // Persist or update user in Firestore
-    try {
-      const userRef = doc(db, 'users', fbUser.uid);
-      await setDoc(userRef, {
-        id: fbUser.uid,
-        email: appUser.email,
-        fullName: appUser.fullName,
-        role: appUser.role,
-        organizationId: orgId,
-        title: appUser.title,
-        updatedAt: new Date().toISOString()
-      }, { merge: true });
-    } catch (err) {
-      console.warn('Could not save user profile to Firestore (will continue with session):', err);
-    }
-
     return { firebaseUser: fbUser, appUser, organization: org };
-  } catch (err) {
+  } catch (err: any) {
+    if (err?.code === 'auth/popup-closed-by-user' || err?.code === 'auth/cancelled-popup-request') {
+      throw new Error('Google Sign-In was cancelled.');
+    }
     console.error('Google Sign-In failed', err);
     throw err;
   }

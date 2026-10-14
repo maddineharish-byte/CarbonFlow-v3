@@ -18,6 +18,13 @@ export function SignInPage({ navigate, onSuccess }: SignInPageProps) {
   const [resetModalOpen, setResetModalOpen] = useState(false);
   const [resetEmail, setResetEmail] = useState('');
   const [resetSuccess, setResetSuccess] = useState(false);
+  const [sessionExpiredNotice, setSessionExpiredNotice] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      return params.get('expired') === 'true' || window.history.state?.sessionExpired === true;
+    }
+    return false;
+  });
 
   const handleGoogleSignIn = async () => {
     setError(null);
@@ -160,6 +167,22 @@ export function SignInPage({ navigate, onSuccess }: SignInPageProps) {
               </div>
               <span className="font-bold text-slate-900 text-lg">Secure Workspace Sign-In</span>
             </div>
+
+            {sessionExpiredNotice && (
+              <div className="mb-5 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900 flex items-center justify-between gap-2 shadow-2xs">
+                <div className="flex items-center gap-2">
+                  <AlertCircle className="h-4 w-4 shrink-0 text-amber-600" />
+                  <span>Your session has expired or requires authentication. Please sign in to continue.</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSessionExpiredNotice(false)}
+                  className="text-amber-700 hover:text-amber-900 font-bold px-1"
+                >
+                  ✕
+                </button>
+              </div>
+            )}
 
             {error && (
               <div className="mb-5 rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-800 flex items-center gap-2">

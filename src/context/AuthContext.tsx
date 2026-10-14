@@ -1,8 +1,9 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { User, Organization, UserRole } from '../types';
 import { api, getStoredToken, setStoredToken, clearStoredToken } from '../services/api';
-import { auth, signInWithGoogle, firebaseSignOut } from '../services/firebase';
+import { auth, signInWithGoogle, firebaseSignOut, db } from '../services/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
+import { doc, getDoc } from 'firebase/firestore';
 
 interface AuthContextType {
   user: User | null;
@@ -47,30 +48,67 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Listen to Firebase auth state changes
     const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
       if (fbUser) {
-        const token = await fbUser.getIdToken();
-        setStoredToken(token);
-        const appUser: User = {
-          id: fbUser.uid,
-          email: fbUser.email || 'user@carbonflow.io',
-          fullName: fbUser.displayName || 'Google User',
-          title: 'Sustainability Officer',
-          role: fbUser.email === 'maddineharish@gmail.com' ? 'COMPANY_ADMIN' : 'SUSTAINABILITY_MANAGER',
-          status: 'ACTIVE',
-          active: true,
-          createdAt: new Date().toISOString()
-        };
-        setUser(appUser);
-        localStorage.setItem('carbonflow_user', JSON.stringify(appUser));
         try {
-          const org = await api.getOrganization();
-          setOrganization(org);
-        } catch {
-          // Keep existing organization or default
+          const token = await fbUser.getIdToken();
+          setStoredToken(token);
+
+          let role: UserRole = 'SUSTAINABILITY_MANAGER';
+          let title = 'Sustainability Officer';
+          let userFullName = fbUser.displayName || (fbUser.email ? fbUser.email.split('@')[0] : 'Google User');
+
+          try {
+            const userSnap = await getDoc(doc(db, 'users', fbUser.uid));
+            if (userSnap.exists()) {
+              const data = userSnap.data();
+              if (data.role) role = data.role as UserRole;
+              if (data.title) title = data.title;
+              if (data.fullName) userFullName = data.fullName;
+            } else if (fbUser.email?.toLowerCase() === 'maddineharish@gmail.com') {
+              role = 'COMPANY_ADMIN';
+              title = 'Chief Sustainability Officer';
+            }
+          } catch {
+            if (fbUser.email?.toLowerCase() === 'maddineharish@gmail.com') {
+              role = 'COMPANY_ADMIN';
+              title = 'Chief Sustainability Officer';
+            }
+          }
+
+          const appUser: User = {
+            id: fbUser.uid,
+            email: fbUser.email || 'user@carbonflow.io',
+            fullName: userFullName,
+            title,
+            role,
+            status: 'ACTIVE',
+            active: true,
+            createdAt: new Date().toISOString()
+          };
+          setUser(appUser);
+          localStorage.setItem('carbonflow_user', JSON.stringify(appUser));
+          try {
+            const org = await api.getOrganization();
+            setOrganization(org);
+          } catch {
+            // Keep existing organization or default
+          }
+        } catch (err) {
+          console.warn('Firebase auth state listener warning:', err);
         }
       }
     });
 
-    return () => unsubscribe();
+    const handleSessionExpired = () => {
+      clearStoredToken();
+      setUser(null);
+      setOrganization(null);
+    };
+    window.addEventListener('carbonflow:session-expired', handleSessionExpired);
+
+    return () => {
+      unsubscribe();
+      window.removeEventListener('carbonflow:session-expired', handleSessionExpired);
+    };
   }, []);
 
   const login = async (email: string, password: string) => {
