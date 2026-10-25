@@ -37,8 +37,11 @@ public class SecurityConfig {
 
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
 
-    @Value("${cors.allowed-origins:http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173}")
+    @Value("${cors.allowed-origins:https://carbonflow.ai.studio,http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173}")
     private String allowedOrigins;
+
+    @Value("${cors.allowed-origin-patterns:https://*.ai.studio,https://*.netlify.app,https://*.onrender.com,https://*.run.app,http://localhost:*,http://127.0.0.1:*}")
+    private String allowedOriginPatterns;
 
     public SecurityConfig(JwtAuthenticationFilter jwtAuthenticationFilter) {
         this.jwtAuthenticationFilter = jwtAuthenticationFilter;
@@ -53,37 +56,65 @@ public class SecurityConfig {
     }
 
     /**
-     * CORS configuration bean allowing web client communication with full HTTP verb support.
+     * Explicit CORS configuration source bean establishing:
+     * 1. Exact production frontend origin https://carbonflow.ai.studio.
+     * 2. Configurable origins via cors.allowed-origins.
+     * 3. Flexible preview patterns (*.ai.studio, *.netlify.app, *.onrender.com, *.run.app, localhost).
+     * 4. Full HTTP verb support (GET, POST, PUT, PATCH, DELETE, OPTIONS, HEAD).
+     * 5. Preflight header validation for Authorization, Content-Type, Accept, and Origin.
+     * 6. Credentials support and 1-hour preflight cache.
      */
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
 
-        List<String> origins = Arrays.stream(allowedOrigins.split(","))
-                .map(String::trim)
-                .filter(s -> !s.isEmpty())
-                .collect(Collectors.toList());
+        // 1. Explicitly permit the exact production frontend origin
+        java.util.List<String> origins = new java.util.ArrayList<>();
+        origins.add("https://carbonflow.ai.studio");
 
+        if (allowedOrigins != null && !allowedOrigins.isBlank()) {
+            Arrays.stream(allowedOrigins.split(","))
+                    .map(String::trim)
+                    .filter(s -> !s.isEmpty() && !origins.contains(s))
+                    .forEach(origins::add);
+        }
         configuration.setAllowedOrigins(origins);
-        // Support dynamic preview domains on Netlify and cloud containers
-        configuration.setAllowedOriginPatterns(List.of(
-                "https://*.netlify.app",
-                "https://*.onrender.com",
-                "https://*.run.app",
-                "http://localhost:*",
-                "http://127.0.0.1:*"
-        ));
+
+        // 2. Support dynamic preview domains on AI Studio, Netlify, and cloud containers
+        java.util.List<String> patterns = new java.util.ArrayList<>();
+        patterns.add("https://*.ai.studio");
+        patterns.add("https://*.netlify.app");
+        patterns.add("https://*.onrender.com");
+        patterns.add("https://*.run.app");
+        patterns.add("http://localhost:*");
+        patterns.add("http://127.0.0.1:*");
+
+        if (allowedOriginPatterns != null && !allowedOriginPatterns.isBlank()) {
+            Arrays.stream(allowedOriginPatterns.split(","))
+                    .map(String::trim)
+                    .filter(s -> !s.isEmpty() && !patterns.contains(s))
+                    .forEach(patterns::add);
+        }
+        configuration.setAllowedOriginPatterns(patterns);
+
+        // 3. Permitted HTTP methods
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"));
+
+        // 4. Permitted request headers
         configuration.setAllowedHeaders(List.of(
                 "Authorization",
                 "Content-Type",
                 "Accept",
-                "X-Requested-With",
                 "Origin",
+                "X-Requested-With",
                 "Access-Control-Request-Method",
                 "Access-Control-Request-Headers"
         ));
+
+        // 5. Exposed response headers
         configuration.setExposedHeaders(List.of("Authorization", "Content-Disposition"));
+
+        // 6. Support credentials and 1-hour preflight caching
         configuration.setAllowCredentials(true);
         configuration.setMaxAge(3600L);
 

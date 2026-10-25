@@ -146,10 +146,11 @@ export async function signInWithGoogle(): Promise<{
     const cred = await signInWithPopup(auth, googleAuthProvider);
     const fbUser = cred.user;
 
-    let orgId = 'org-demo-001';
-    let role: UserRole = 'SUSTAINABILITY_MANAGER';
-    let title = 'Sustainability Officer';
     let userFullName = fbUser.displayName || (fbUser.email ? fbUser.email.split('@')[0] : 'Google User');
+    let orgId = 'org-' + fbUser.uid;
+    let role: UserRole = 'COMPANY_ADMIN';
+    let title = 'Chief Sustainability Officer';
+    let orgName = userFullName + ' Organization';
     let createdAt = new Date().toISOString();
 
     // Check if user already exists in Firestore to avoid duplicate organizations or overwriting roles
@@ -160,6 +161,7 @@ export async function signInWithGoogle(): Promise<{
       if (userSnap.exists()) {
         const data = userSnap.data();
         if (data.organizationId) orgId = data.organizationId;
+        if (data.organizationName) orgName = data.organizationName;
         if (data.role) role = data.role as UserRole;
         if (data.title) title = data.title;
         if (data.fullName) userFullName = data.fullName;
@@ -172,18 +174,13 @@ export async function signInWithGoogle(): Promise<{
           updatedAt: new Date().toISOString()
         }, { merge: true });
       } else {
-        // New user provisioning
-        if (fbUser.email?.toLowerCase() === 'maddineharish@gmail.com' || fbUser.email?.toLowerCase().startsWith('admin@')) {
-          role = 'COMPANY_ADMIN';
-          title = 'Chief Sustainability Officer';
-        }
-
         await setDoc(userRef, {
           id: fbUser.uid,
           email: fbUser.email,
           fullName: userFullName,
           role,
           organizationId: orgId,
+          organizationName: orgName,
           title,
           createdAt,
           updatedAt: createdAt
@@ -206,11 +203,11 @@ export async function signInWithGoogle(): Promise<{
 
     const org: Organization = {
       id: orgId,
-      name: 'CarbonFlow Technologies Inc.',
+      name: orgName,
       industry: 'Technology & Enterprise Software',
       country: 'United States',
-      location: 'San Francisco, CA & Global Operations',
-      description: 'Enterprise sustainability and Net-Zero GHG management platform.',
+      location: 'Corporate Operations',
+      description: 'Dedicated enterprise sustainability and Net-Zero GHG management platform.',
       reportingPeriod: '2025'
     };
 

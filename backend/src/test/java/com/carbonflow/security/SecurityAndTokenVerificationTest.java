@@ -155,28 +155,28 @@ class SecurityAndTokenVerificationTest {
     }
 
     @Test
-    @DisplayName("6. Platform Administrator receives COMPANY_ADMIN role automatically")
-    void testAdminEmailRoleAssignment() throws Exception {
+    @DisplayName("6. Verified Firebase user is authenticated and isolated tenant is assigned")
+    void testNewUserTenantIsolationAutoProvisioning() throws Exception {
         MockHttpServletRequest request = new MockHttpServletRequest();
-        request.addHeader("Authorization", "Bearer admin.firebase.token");
+        request.addHeader("Authorization", "Bearer user.firebase.token");
         MockHttpServletResponse response = new MockHttpServletResponse();
         MockFilterChain chain = new MockFilterChain();
 
-        FirebaseTokenVerifier.VerifiedFirebaseUser adminUser = new FirebaseTokenVerifier.VerifiedFirebaseUser(
-                "firebase-admin-uid",
-                "maddineharish@gmail.com",
-                "Harish Maddine",
+        FirebaseTokenVerifier.VerifiedFirebaseUser newUser = new FirebaseTokenVerifier.VerifiedFirebaseUser(
+                "firebase-uid-newuser",
+                "newuser@enterprise.org",
+                "New User",
                 true,
                 Map.of()
         );
 
-        when(firebaseTokenVerifier.isFirebaseToken("admin.firebase.token")).thenReturn(true);
-        when(firebaseTokenVerifier.verifyToken("admin.firebase.token")).thenReturn(adminUser);
-        when(userRepository.findAuthRecordByEmail("maddineharish@gmail.com")).thenReturn(Optional.empty());
+        when(firebaseTokenVerifier.isFirebaseToken("user.firebase.token")).thenReturn(true);
+        when(firebaseTokenVerifier.verifyToken("user.firebase.token")).thenReturn(newUser);
+        when(userRepository.findAuthRecordByEmail("newuser@enterprise.org")).thenReturn(Optional.empty());
 
         filter.doFilter(request, response, chain);
 
-        verify(firebaseTokenVerifier, times(1)).verifyToken("admin.firebase.token");
+        verify(firebaseTokenVerifier, times(1)).verifyToken("user.firebase.token");
     }
 
     @Test

@@ -40,14 +40,25 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private final JwtTokenProvider tokenProvider;
     private final FirebaseTokenVerifier firebaseTokenVerifier;
     private final UserRepository userRepository;
+    private final com.carbonflow.organization.OrganizationRepository organizationRepository;
 
     public JwtAuthenticationFilter(
             JwtTokenProvider tokenProvider,
             FirebaseTokenVerifier firebaseTokenVerifier,
             UserRepository userRepository) {
+        this(tokenProvider, firebaseTokenVerifier, userRepository, null);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public JwtAuthenticationFilter(
+            JwtTokenProvider tokenProvider,
+            FirebaseTokenVerifier firebaseTokenVerifier,
+            UserRepository userRepository,
+            @org.springframework.beans.factory.annotation.Autowired(required = false) com.carbonflow.organization.OrganizationRepository organizationRepository) {
         this.tokenProvider = tokenProvider;
         this.firebaseTokenVerifier = firebaseTokenVerifier;
         this.userRepository = userRepository;
+        this.organizationRepository = organizationRepository;
     }
 
     @Override
@@ -55,6 +66,12 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             @NonNull HttpServletRequest request,
             @NonNull HttpServletResponse response,
             @NonNull FilterChain filterChain) throws ServletException, IOException {
+
+        // Permit browser CORS preflight requests without authentication or token checks
+        if ("OPTIONS".equalsIgnoreCase(request.getMethod())) {
+            filterChain.doFilter(request, response);
+            return;
+        }
 
         try {
             String token = getJwtFromRequest(request);
@@ -85,8 +102,8 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
         String email = verified.email() != null ? verified.email().toLowerCase().trim() : "";
         String userId = verified.uid();
-        String organizationId = "org-demo-001";
-        UserRole role = UserRole.SUSTAINABILITY_MANAGER;
+        String organizationId = "org-" + userId;
+        UserRole role = UserRole.COMPANY_ADMIN;
         String fullName = verified.name() != null && !verified.name().isBlank()
                 ? verified.name()
                 : (email.contains("@") ? email.split("@")[0] : "Google User");
@@ -103,20 +120,32 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                     fullName = rec.fullName();
                 }
             } else {
-                // Initial role assignment
-                if ("maddineharish@gmail.com".equalsIgnoreCase(email) || email.startsWith("admin@")) {
-                    role = UserRole.COMPANY_ADMIN;
-                }
+                // Auto-provision an isolated tenant organization for new verified user
+                String userOrgId = "org-" + userId;
+                role = UserRole.COMPANY_ADMIN;
+                organizationId = userOrgId;
 
-                // Provision database membership for verified Firebase user
                 try {
+                    if (organizationRepository != null && organizationRepository.findById(userOrgId).isEmpty()) {
+                        organizationRepository.create(new com.carbonflow.organization.OrganizationDto(
+                                userOrgId,
+                                fullName + " Organization",
+                                "Technology & Enterprise Software",
+                                "Global",
+                                "Corporate Headquarters",
+                                "Dedicated isolated enterprise carbon accounting organization.",
+                                "2025",
+                                java.time.LocalDateTime.now(),
+                                java.time.LocalDateTime.now()
+                        ));
+                    }
                     if (userRepository.findById(userId).isEmpty()) {
-                        userRepository.createUser(userId, email, "", fullName, "Sustainability Officer", "");
-                        userRepository.addMember(organizationId, userId, role);
-                        log.info("Auto-provisioned membership for verified Firebase user '{}' ({})", userId, email);
+                        userRepository.createUser(userId, email, "", fullName, "Chief Sustainability Officer", "");
+                        userRepository.addMember(userOrgId, userId, role);
+                        log.info("Auto-provisioned isolated organization '{}' for verified user '{}' ({})", userOrgId, userId, email);
                     }
                 } catch (Exception ex) {
-                    log.debug("User already provisioned or database constraint handled: {}", ex.getMessage());
+                    log.debug("User/org already provisioned or handled: {}", ex.getMessage());
                 }
             }
         }

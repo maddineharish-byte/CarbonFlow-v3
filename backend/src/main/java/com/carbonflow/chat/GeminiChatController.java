@@ -116,19 +116,31 @@ public class GeminiChatController {
     }
 
     private String callGeminiRestApi(String model, List<Map<String, Object>> messages, String systemInstruction) throws Exception {
-        String url = "https://generativelanguage.googleapis.com/v1beta/models/" + model + ":generateContent?key=" + geminiApiKey.trim();
+        String url = "https://generativelanguage.googleapis.com/v1beta/models/" + model + ":generateContent";
 
-        Map<String, Object> reqPayload = Map.of(
-                "contents", messages.stream().map(m -> Map.of(
-                        "role", "assistant".equalsIgnoreCase((String) m.get("role")) ? "model" : "user",
-                        "parts", List.of(Map.of("text", m.getOrDefault("text", "")))
-                )).toList()
-        );
+        Map<String, Object> reqPayload;
+        if (systemInstruction != null && !systemInstruction.isBlank()) {
+            reqPayload = Map.of(
+                    "systemInstruction", Map.of("parts", List.of(Map.of("text", systemInstruction))),
+                    "contents", messages.stream().map(m -> Map.of(
+                            "role", "assistant".equalsIgnoreCase((String) m.get("role")) ? "model" : "user",
+                            "parts", List.of(Map.of("text", m.getOrDefault("text", "")))
+                    )).toList()
+            );
+        } else {
+            reqPayload = Map.of(
+                    "contents", messages.stream().map(m -> Map.of(
+                            "role", "assistant".equalsIgnoreCase((String) m.get("role")) ? "model" : "user",
+                            "parts", List.of(Map.of("text", m.getOrDefault("text", "")))
+                    )).toList()
+            );
+        }
 
         String jsonBody = objectMapper.writeValueAsString(reqPayload);
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(url))
                 .header("Content-Type", "application/json")
+                .header("x-goog-api-key", geminiApiKey.trim())
                 .header("User-Agent", "carbonflow-render")
                 .timeout(Duration.ofSeconds(15))
                 .POST(HttpRequest.BodyPublishers.ofString(jsonBody))

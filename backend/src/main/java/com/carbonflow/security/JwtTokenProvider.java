@@ -14,20 +14,32 @@ import java.util.Map;
 @Component
 public class JwtTokenProvider {
 
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(JwtTokenProvider.class);
+
     private final SecretKey key;
     private final long expirationMs;
 
     public JwtTokenProvider(
-            @Value("${jwt.secret:c2VjdXJlLWNhcmJvbmZsb3ctcHJvZHVjdGlvbi1zZWNyZXQta2V5LTIwMjYtMjU2LWJpdC1taW5pbXVtLXN0cmVuZ3Ro}") String secret,
+            @Value("${jwt.secret:}") String secret,
             @Value("${jwt.expiration-ms:86400000}") long expirationMs) {
-        byte[] keyBytes = secret.getBytes(StandardCharsets.UTF_8);
-        if (keyBytes.length < 32) {
-            // Pad to at least 256 bits if needed
-            byte[] padded = new byte[32];
-            System.arraycopy(keyBytes, 0, padded, 0, Math.min(keyBytes.length, 32));
-            this.key = Keys.hmacShaKeyFor(padded);
+        if (secret == null || secret.trim().isEmpty()) {
+            boolean isProd = System.getenv("RENDER") != null ||
+                    "prod".equalsIgnoreCase(System.getProperty("spring.profiles.active")) ||
+                    "production".equalsIgnoreCase(System.getenv("NODE_ENV"));
+            if (isProd) {
+                throw new IllegalStateException("FATAL: Required environment variable JWT_SECRET is not configured for production environment.");
+            }
+            log.warn("JWT_SECRET is not configured. Generating a secure random in-memory ephemeral HMAC-SHA256 key for development/test.");
+            this.key = Jwts.SIG.HS256.key().build();
         } else {
-            this.key = Keys.hmacShaKeyFor(keyBytes);
+            byte[] keyBytes = secret.trim().getBytes(StandardCharsets.UTF_8);
+            if (keyBytes.length < 32) {
+                byte[] padded = new byte[32];
+                System.arraycopy(keyBytes, 0, padded, 0, Math.min(keyBytes.length, 32));
+                this.key = Keys.hmacShaKeyFor(padded);
+            } else {
+                this.key = Keys.hmacShaKeyFor(keyBytes);
+            }
         }
         this.expirationMs = expirationMs;
     }

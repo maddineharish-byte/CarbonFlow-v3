@@ -569,16 +569,12 @@ export const api = {
       const org: Organization = { ...INITIAL_ORG, id: res.organizationId, name: res.organizationName };
       localStorage.setItem(USER_KEY, JSON.stringify(user));
       return { token: res.token, user, organization: org };
-    } catch {
-      // Local demo match
-      const matched = INITIAL_USERS.find(u => u.email.toLowerCase() === email.toLowerCase());
-      if (matched && password === 'Password123!') {
-        const dummyToken = 'jwt-demo-token-' + matched.role;
-        setStoredToken(dummyToken);
-        localStorage.setItem(USER_KEY, JSON.stringify(matched));
-        return { token: dummyToken, user: matched, organization: INITIAL_ORG };
+    } catch (err: any) {
+      const msg = err?.message || '';
+      if (msg.includes('Invalid') || msg.includes('deactivated') || msg.includes('credentials')) {
+        throw new Error(msg.replace(/^API fetch error on \/api\/auth\/login:\s*/i, ''));
       }
-      throw new Error('Invalid email or password.');
+      throw new Error(msg ? msg.replace(/^API fetch error on \/api\/auth\/login:\s*/i, '') : 'Invalid corporate credentials or authentication service unavailable.');
     }
   },
 

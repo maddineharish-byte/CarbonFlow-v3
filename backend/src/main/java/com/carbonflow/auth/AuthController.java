@@ -33,7 +33,10 @@ public class AuthController {
     @PostMapping("/reset-password")
     public ApiResponse<Void> resetPassword(@RequestBody AuthDto.PasswordResetRequest request) {
         authService.resetPassword(request);
-        return ApiResponse.ok("Password reset successfully", null);
+        String message = (request.oldPassword() != null && !request.oldPassword().isBlank())
+                ? "Password updated successfully."
+                : "If an account exists with this email, password reset instructions have been dispatched.";
+        return ApiResponse.ok(message, null);
     }
 
     @GetMapping("/me")

@@ -19,9 +19,12 @@ import {
 } from 'lucide-react';
 import { api } from '../../services/api';
 import { fsGetCarbonRecords, fsGetAudits } from '../../services/firebase';
+import { useAuth } from '../../context/AuthContext';
 import { DashboardMetrics, CarbonRecord, AuditItem } from '../../types';
 
 export function ReportsPage() {
+  const { organization } = useAuth();
+  const currentOrgId = organization?.id || 'org-demo-001';
   const [metrics, setMetrics] = useState<DashboardMetrics | null>(null);
   const [records, setRecords] = useState<CarbonRecord[]>([]);
   const [audits, setAudits] = useState<AuditItem[]>([]);
@@ -51,8 +54,8 @@ export function ReportsPage() {
       // Supplement / merge with Firestore if records exist
       try {
         const [fsCarbon, fsAudit] = await Promise.all([
-          fsGetCarbonRecords('org-demo-001').catch(() => []),
-          fsGetAudits('org-demo-001').catch(() => [])
+          fsGetCarbonRecords(currentOrgId).catch(() => []),
+          fsGetAudits(currentOrgId).catch(() => [])
         ]);
 
         if (fsCarbon && fsCarbon.length > 0) {
@@ -103,7 +106,7 @@ export function ReportsPage() {
       const s1Emissions = s1Records.reduce((acc, r) => acc + (r.calculatedEmissions || 0), 0);
       const s2Emissions = s2Records.reduce((acc, r) => acc + (r.calculatedEmissions || 0), 0);
       const s3Emissions = s3Records.reduce((acc, r) => acc + (r.calculatedEmissions || 0), 0);
-      const grossEmissions = s1Emissions + s2Emissions + s3Emissions || (metrics?.totalEmissions ?? 693.68);
+      const grossEmissions = s1Emissions + s2Emissions + s3Emissions || (metrics?.totalEmissions ?? 0);
 
       const validatedRecords = records.filter(r => r.status === 'VALIDATED').length;
       const underReviewRecords = records.filter(r => r.status === 'UNDER_REVIEW').length;
@@ -125,7 +128,7 @@ export function ReportsPage() {
           '# CARBONFLOW ENTERPRISE AUDIT & CARBON DATA AGGREGATED REPORT,\n' +
           `# Reporting Period: ${period},\n` +
           `# Generated Date: ${nowTimestamp},\n` +
-          '# Organization: CarbonFlow Technologies Inc. (org-demo-001),\n' +
+          `# Organization: ${organization ? `${organization.name} (${organization.id})` : 'CarbonFlow Technologies Inc. (org-demo-001)'},\n` +
           '# Assurance Standard: ISO 14064-1 & GHG Protocol Corporate Standard,\n' +
           '# ==============================================================================,'
         );
@@ -332,7 +335,7 @@ export function ReportsPage() {
   const s1Total = records.filter(r => r.scope === 'SCOPE_1').reduce((sum, r) => sum + (r.calculatedEmissions || 0), 0);
   const s2Total = records.filter(r => r.scope === 'SCOPE_2').reduce((sum, r) => sum + (r.calculatedEmissions || 0), 0);
   const s3Total = records.filter(r => r.scope === 'SCOPE_3').reduce((sum, r) => sum + (r.calculatedEmissions || 0), 0);
-  const totalReportEmissions = s1Total + s2Total + s3Total || (metrics?.totalEmissions ?? 693.68);
+  const totalReportEmissions = s1Total + s2Total + s3Total || (metrics?.totalEmissions ?? 0);
 
   return (
     <div className="space-y-6">
