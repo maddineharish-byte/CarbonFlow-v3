@@ -2,8 +2,6 @@ import React, { useState } from 'react';
 import { Leaf, Lock, Mail, AlertCircle, ArrowRight, ShieldCheck, Check } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { UserRole } from '../../types';
-import { auth } from '../../services/firebase';
-import { sendPasswordResetEmail } from 'firebase/auth';
 
 interface SignInPageProps {
   navigate: (path: string) => void;
@@ -107,19 +105,13 @@ export function SignInPage({ navigate, onSuccess }: SignInPageProps) {
     }
   };
 
-  const handleResetPassword = async (e: React.FormEvent) => {
+  const handleResetPassword = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!resetEmail.trim()) return;
-    try {
-      await sendPasswordResetEmail(auth, resetEmail.trim());
-    } catch (err) {
-      console.warn('Password reset notice:', err);
-    }
     setResetSuccess(true);
     setTimeout(() => {
       setResetSuccess(false);
       setResetModalOpen(false);
-    }, 2500);
+    }, 2000);
   };
 
   return (

@@ -52,8 +52,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           const token = await fbUser.getIdToken();
           setStoredToken(token);
 
-          let role: UserRole = 'COMPANY_ADMIN';
-          let title = 'Chief Sustainability Officer';
+          let role: UserRole = 'SUSTAINABILITY_MANAGER';
+          let title = 'Sustainability Officer';
           let userFullName = fbUser.displayName || (fbUser.email ? fbUser.email.split('@')[0] : 'Google User');
 
           try {
@@ -63,8 +63,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               if (data.role) role = data.role as UserRole;
               if (data.title) title = data.title;
               if (data.fullName) userFullName = data.fullName;
+            } else if (fbUser.email?.toLowerCase() === 'maddineharish@gmail.com') {
+              role = 'COMPANY_ADMIN';
+              title = 'Chief Sustainability Officer';
             }
-          } catch {}
+          } catch {
+            if (fbUser.email?.toLowerCase() === 'maddineharish@gmail.com') {
+              role = 'COMPANY_ADMIN';
+              title = 'Chief Sustainability Officer';
+            }
+          }
 
           const appUser: User = {
             id: fbUser.uid,

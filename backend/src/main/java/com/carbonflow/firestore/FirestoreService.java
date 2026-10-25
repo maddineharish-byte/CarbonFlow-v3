@@ -117,8 +117,8 @@ public class FirestoreService {
     }
 
     /**
-     * Diagnostic connectivity test with read-only ping against the configured database.
-     * Non-destructive: does not mutate or create temporary documents.
+     * Diagnostic connectivity test with isolated write and immediate read back.
+     * Uses a temporary document in the "test" collection.
      */
     public Map<String, Object> testConnectivity() {
         Map<String, Object> result = new HashMap<>();
@@ -133,14 +133,30 @@ public class FirestoreService {
             return result;
         }
 
+        String testDocId = "diag-" + System.currentTimeMillis();
+        DocumentReference testDocRef = firestore.collection("test").document(testDocId);
+
         try {
-            // Read-only shallow ping against organizations collection
-            QuerySnapshot ping = firestore.collection("organizations").limit(1).get().get(5, TimeUnit.SECONDS);
-            boolean reachable = ping != null;
+            Map<String, Object> testPayload = Map.of(
+                    "service", "CarbonFlow Backend",
+                    "databaseId", databaseId,
+                    "timestamp", Instant.now().toString()
+            );
+
+            // 1. Authorized write
+            ApiFuture<WriteResult> writeFuture = testDocRef.set(testPayload);
+            writeFuture.get(5, TimeUnit.SECONDS);
+
+            // 2. Read back from the exact database
+            DocumentSnapshot snapshot = testDocRef.get().get(5, TimeUnit.SECONDS);
+            boolean verified = snapshot.exists();
+
+            // 3. Clean up test document
+            testDocRef.delete();
 
             result.put("connected", true);
-            result.put("status", reachable ? "VERIFIED" : "PING_FAILED");
-            result.put("liveConnectivityVerified", reachable);
+            result.put("status", verified ? "VERIFIED" : "READ_FAILED");
+            result.put("liveReadWriteVerified", verified);
             result.put("timestamp", Instant.now().toString());
             return result;
         } catch (Exception e) {

@@ -82,33 +82,20 @@ function MainRouter() {
         navigatePublic={navigate}
       >
         {appTab === 'dashboard' && <DashboardPage setTab={setAppTab} />}
-        {appTab === 'ai-assistant' && <GeminiChatbotPage />}
-        {appTab === 'organization' && <OrganizationPage />}
-        {appTab === 'carbon-data' && <CarbonDataPage />}
-        {appTab === 'travel' && <TravelMobilityPage />}
-        {appTab === 'evidence' && <EvidencePage />}
-        {appTab === 'audits' && <AuditsPage />}
-        {appTab === 'findings' && <FindingsPage />}
-        {appTab === 'corrective-actions' && <CorrectiveActionsPage />}
-        {appTab === 'compliance' && <AppCompliancePage />}
-        {appTab === 'reports' && <ReportsPage />}
-        {appTab === 'audit-trail' && <AuditTrailPage />}
-        {appTab === 'backup' && <BackupRecoveryPage />}
-        {appTab === 'settings' && <SettingsPage />}
-      </AppLayout>
-    );
-  }
-
-  // Guard: If accessing /app without authentication, show SignInPage
-  if (currentPath.startsWith('/app')) {
-    return (
-      <div className="min-h-screen flex flex-col bg-stone-50 text-stone-900">
-        <PublicNavbar currentPath="/sign-in" navigate={navigate} />
-        <main className="flex-1">
-          <SignInPage navigate={navigate} onSuccess={() => navigate('/app')} />
-        </main>
-        <PublicFooter navigate={navigate} />
-      </div>
+          {appTab === 'ai-assistant' && <GeminiChatbotPage />}
+          {appTab === 'organization' && <OrganizationPage />}
+          {appTab === 'carbon-data' && <CarbonDataPage />}
+          {appTab === 'travel' && <TravelMobilityPage />}
+          {appTab === 'evidence' && <EvidencePage />}
+          {appTab === 'audits' && <AuditsPage />}
+          {appTab === 'findings' && <FindingsPage />}
+          {appTab === 'corrective-actions' && <CorrectiveActionsPage />}
+          {appTab === 'compliance' && <AppCompliancePage />}
+          {appTab === 'reports' && <ReportsPage />}
+          {appTab === 'audit-trail' && <AuditTrailPage />}
+          {appTab === 'backup' && <BackupRecoveryPage />}
+          {appTab === 'settings' && <SettingsPage />}
+        </AppLayout>
     );
   }
 

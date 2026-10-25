@@ -17,28 +17,14 @@ service cloud.firestore {
     }
 
     function isPlatformAdmin() {
-      return isSignedIn() && request.auth.token.email_verified == true && (
-        request.auth.token.admin == true ||
-        request.auth.token.role == 'PLATFORM_ADMIN' ||
+      return isSignedIn() && (
         request.auth.token.email == 'maddineharish@gmail.com' ||
-        request.auth.token.email == 'admin@carbonflow.io'
+        (request.auth.token.email_verified == true && request.auth.token.email == 'admin@carbonflow.io')
       );
     }
 
-    function getUserDoc(uid) {
-      return get(/databases/$(database)/documents/users/$(uid)).data;
-    }
-
-    function hasUserDoc(uid) {
-      return exists(/databases/$(database)/documents/users/$(uid));
-    }
-
-    function currentUserOrg() {
-      return hasUserDoc(request.auth.uid) ? getUserDoc(request.auth.uid).organizationId : 'org-' + request.auth.uid;
-    }
-
-    function currentUserRole() {
-      return hasUserDoc(request.auth.uid) ? getUserDoc(request.auth.uid).role : 'COMPANY_ADMIN';
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
     }
 
     function incoming() {
@@ -107,63 +93,51 @@ service cloud.firestore {
 
     // 1. Users Collection
     match /users/{userId} {
-      allow get: if isSignedIn() && (isOwner(userId) || isPlatformAdmin() || resource.data.organizationId == currentUserOrg());
-      allow list: if isSignedIn() && (resource.data.organizationId == currentUserOrg() || isPlatformAdmin());
+      allow get: if isSignedIn() && (isOwner(userId) || isPlatformAdmin());
+      allow list: if isSignedIn() && (resource.data.id == request.auth.uid || isPlatformAdmin());
       allow create: if isSignedIn() && (isOwner(userId) || isPlatformAdmin()) && isValidUser(incoming());
-      // Prevent users from elevating their own role or jumping to another organization
-      allow update: if isSignedIn() && (
-        isPlatformAdmin() ||
-        (isOwner(userId) && isValidUser(incoming()) && incoming().id == existing().id &&
-         incoming().role == existing().role && incoming().organizationId == existing().organizationId) ||
-        (currentUserRole() == 'COMPANY_ADMIN' && existing().organizationId == currentUserOrg() &&
-         incoming().organizationId == existing().organizationId && isValidUser(incoming()) && incoming().id == existing().id)
-      );
-      allow delete: if isPlatformAdmin() || (currentUserRole() == 'COMPANY_ADMIN' && existing().organizationId == currentUserOrg() && !isOwner(userId));
+      allow update: if isSignedIn() && (isOwner(userId) || isPlatformAdmin()) && isValidUser(incoming()) && incoming().id == existing().id;
+      allow delete: if isPlatformAdmin();
     }
 
     // 2. Organizations Collection
     match /organizations/{orgId} {
-      allow get: if isSignedIn() && (orgId == currentUserOrg() || isPlatformAdmin());
-      allow list: if isSignedIn() && (resource.data.id == currentUserOrg() || isPlatformAdmin());
+      allow get, list: if isSignedIn();
       allow create: if isSignedIn() && isValidOrg(incoming());
-      allow update: if isSignedIn() && (orgId == currentUserOrg() || isPlatformAdmin()) && (currentUserRole() == 'COMPANY_ADMIN' || isPlatformAdmin()) && isValidOrg(incoming()) && incoming().id == existing().id;
+      allow update: if isSignedIn() && isValidOrg(incoming()) && incoming().id == existing().id;
       allow delete: if isPlatformAdmin();
     }
 
-    // 3. Carbon Records Collection - Strict Tenant Isolation
+    // 3. Carbon Records Collection
     match /carbonRecords/{recordId} {
-      allow get: if isSignedIn() && (resource.data.organizationId == currentUserOrg() || isPlatformAdmin());
-      allow list: if isSignedIn() && (resource.data.organizationId == currentUserOrg() || isPlatformAdmin());
-      allow create: if isSignedIn() && (incoming().organizationId == currentUserOrg() || isPlatformAdmin()) && isValidCarbonRecord(incoming()) && (currentUserRole() in ['COMPANY_ADMIN', 'SUSTAINABILITY_MANAGER', 'ANALYST'] || isPlatformAdmin());
-      allow update: if isSignedIn() && (existing().organizationId == currentUserOrg() || isPlatformAdmin()) && incoming().organizationId == existing().organizationId && isValidCarbonRecord(incoming()) && (currentUserRole() in ['COMPANY_ADMIN', 'SUSTAINABILITY_MANAGER', 'ANALYST'] || isPlatformAdmin());
-      allow delete: if isSignedIn() && (existing().organizationId == currentUserOrg() || isPlatformAdmin()) && (currentUserRole() in ['COMPANY_ADMIN', 'SUSTAINABILITY_MANAGER'] || isPlatformAdmin());
+      allow get, list: if isSignedIn();
+      allow create: if isSignedIn() && isValidCarbonRecord(incoming());
+      allow update: if isSignedIn() && isValidCarbonRecord(incoming()) && incoming().id == existing().id;
+      allow delete: if isSignedIn();
     }
 
-    // 4. Travel Activities Collection - Strict Tenant Isolation
+    // 4. Travel Activities Collection
     match /travelActivities/{activityId} {
-      allow get: if isSignedIn() && (resource.data.organizationId == currentUserOrg() || isPlatformAdmin());
-      allow list: if isSignedIn() && (resource.data.organizationId == currentUserOrg() || isPlatformAdmin());
-      allow create: if isSignedIn() && (incoming().organizationId == currentUserOrg() || isPlatformAdmin()) && isValidTravelActivity(incoming());
-      allow update: if isSignedIn() && (existing().organizationId == currentUserOrg() || isPlatformAdmin()) && incoming().organizationId == existing().organizationId && isValidTravelActivity(incoming());
-      allow delete: if isSignedIn() && (existing().organizationId == currentUserOrg() || isPlatformAdmin()) && (currentUserRole() in ['COMPANY_ADMIN', 'SUSTAINABILITY_MANAGER'] || isPlatformAdmin());
+      allow get, list: if isSignedIn();
+      allow create: if isSignedIn() && isValidTravelActivity(incoming());
+      allow update: if isSignedIn() && isValidTravelActivity(incoming()) && incoming().id == existing().id;
+      allow delete: if isSignedIn();
     }
 
-    // 5. Evidence Collection - Strict Tenant Isolation
+    // 5. Evidence Collection
     match /evidence/{evidenceId} {
-      allow get: if isSignedIn() && (resource.data.organizationId == currentUserOrg() || isPlatformAdmin());
-      allow list: if isSignedIn() && (resource.data.organizationId == currentUserOrg() || isPlatformAdmin());
-      allow create: if isSignedIn() && (incoming().organizationId == currentUserOrg() || isPlatformAdmin()) && isValidEvidence(incoming());
-      allow update: if isSignedIn() && (existing().organizationId == currentUserOrg() || isPlatformAdmin()) && incoming().organizationId == existing().organizationId && isValidEvidence(incoming());
-      allow delete: if isSignedIn() && (existing().organizationId == currentUserOrg() || isPlatformAdmin()) && (currentUserRole() in ['COMPANY_ADMIN', 'SUSTAINABILITY_MANAGER'] || isPlatformAdmin());
+      allow get, list: if isSignedIn();
+      allow create: if isSignedIn() && isValidEvidence(incoming());
+      allow update: if isSignedIn() && isValidEvidence(incoming()) && incoming().id == existing().id;
+      allow delete: if isSignedIn();
     }
 
-    // 6. Audits Collection - Strict Tenant Isolation
+    // 6. Audits Collection
     match /audits/{auditId} {
-      allow get: if isSignedIn() && (resource.data.organizationId == currentUserOrg() || isPlatformAdmin());
-      allow list: if isSignedIn() && (resource.data.organizationId == currentUserOrg() || isPlatformAdmin());
-      allow create: if isSignedIn() && (incoming().organizationId == currentUserOrg() || isPlatformAdmin()) && isValidAudit(incoming()) && (currentUserRole() in ['COMPANY_ADMIN', 'SUSTAINABILITY_MANAGER', 'AUDITOR'] || isPlatformAdmin());
-      allow update: if isSignedIn() && (existing().organizationId == currentUserOrg() || isPlatformAdmin()) && incoming().organizationId == existing().organizationId && isValidAudit(incoming()) && (currentUserRole() in ['COMPANY_ADMIN', 'SUSTAINABILITY_MANAGER', 'AUDITOR'] || isPlatformAdmin());
-      allow delete: if isSignedIn() && (existing().organizationId == currentUserOrg() || isPlatformAdmin()) && (currentUserRole() == 'COMPANY_ADMIN' || isPlatformAdmin());
+      allow get, list: if isSignedIn();
+      allow create: if isSignedIn() && isValidAudit(incoming());
+      allow update: if isSignedIn() && isValidAudit(incoming()) && incoming().id == existing().id;
+      allow delete: if isSignedIn();
     }
   }
 }
